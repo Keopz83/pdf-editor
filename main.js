@@ -1,5 +1,5 @@
 import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { PDFArray, PDFDocument, PDFHexString, PDFName, StandardFonts, rgb } from "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm";
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, StandardFonts, rgb } from "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
@@ -18,6 +18,14 @@ const fontBoldEl = document.getElementById("font-bold");
 const fontItalicEl = document.getElementById("font-italic");
 const saveBtn = document.getElementById("save-btn");
 const deleteBtn = document.getElementById("delete-btn");
+const signatureBtn = document.getElementById("signature-btn");
+const signatureTray = document.getElementById("signature-tray");
+const signaturePreview = document.getElementById("signature-preview");
+const signatureDialog = document.getElementById("signature-dialog");
+const signaturePad = document.getElementById("signature-pad");
+const signatureDoneBtn = document.getElementById("signature-done");
+const signatureOptions = document.getElementById("signature-options");
+const signatureColorEl = document.getElementById("signature-color");
 
 // Must match the .text-box / .text-field CSS so the saved output lines up with the screen.
 const BOX_INSET = 5;
@@ -29,7 +37,13 @@ const LINE_HEIGHT = 1.2;
 // Page dictionary entries that let a saved PDF's text fields be restored for editing.
 const FIELDS_KEY = PDFName.of("PdfEditorFields");
 const STREAMS_KEY = PDFName.of("PdfEditorStreams");
+const IMAGES_KEY = PDFName.of("PdfEditorImages");
 const CONTENTS_KEY = PDFName.of("Contents");
+const XOBJECT_KEY = PDFName.of("XObject");
+const SMASK_KEY = PDFName.of("SMask");
+
+const SIGNATURE_WIDTH = 150;
+const PNG_DATA_URL = "data:image/png;base64,";
 
 const CSS_FONTS = {
   Helvetica: "Helvetica, Arial, sans-serif",
@@ -62,15 +76,21 @@ const pct = (value, total) => `${(value / total) * 100}%`;
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
 function select(box) {
-  for (const el of pagesEl.querySelectorAll(".text-box.selected")) {
+  for (const el of pagesEl.querySelectorAll(".box.selected")) {
     if (el === box) continue;
     el.classList.remove("selected");
-    el.querySelector(".text-field").readOnly = true;
+    const field = el.querySelector(".text-field");
+    if (field) field.readOnly = true;
   }
   box?.classList.add("selected");
 
-  textOptions.hidden = !box;
-  if (!box) return;
+  deleteBtn.hidden = !box;
+  const isSignature = !!box?.classList.contains("signature-box");
+  signatureOptions.hidden = !isSignature;
+  if (isSignature) signatureColorEl.value = box.dataset.color;
+  const isText = !!box?.classList.contains("text-box");
+  textOptions.hidden = !isText;
+  if (!isText) return;
   textColorEl.value = box.dataset.color;
   fillTransparentEl.checked = !box.dataset.fill;
   if (box.dataset.fill) fillColorEl.value = box.dataset.fill;
@@ -109,6 +129,33 @@ for (const el of [textColorEl, fillColorEl, fillTransparentEl, fontSizeEl, fontF
   el.addEventListener("input", updateSelectedStyle);
 }
 
+// Paints every stroke pixel in the color while keeping its alpha, so the background stays transparent.
+async function recolor(src, color) {
+  const img = new Image();
+  img.src = src;
+  await img.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0);
+  ctx.globalCompositeOperation = "source-in";
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/png");
+}
+
+signatureColorEl.addEventListener("input", async () => {
+  const box = pagesEl.querySelector(".signature-box.selected");
+  if (!box) return;
+  const color = signatureColorEl.value;
+  box.dataset.color = color;
+  const img = box.querySelector("img");
+  const src = await recolor(img.src, color);
+  // Ignore results overtaken by a newer color pick.
+  if (box.dataset.color === color) img.src = src;
+});
+
 const BASIC_COLORS = {
   Black: "#000000", Gray: "#808080", White: "#ffffff", Red: "#ff0000",
   Orange: "#ff8000", Yellow: "#ffff00", Green: "#008000", Blue: "#0000ff",
@@ -126,19 +173,19 @@ for (const container of document.querySelectorAll(".swatches")) {
     swatch.addEventListener("click", () => {
       if (input === fillColorEl) fillTransparentEl.checked = false;
       input.value = color;
-      updateSelectedStyle();
+      input.dispatchEvent(new Event("input"));
     });
     container.appendChild(swatch);
   }
 }
 
 document.addEventListener("pointerdown", (e) => {
-  if (e.target.closest("#toolbar")) return;
-  select(e.target.closest(".text-box"));
+  if (e.target.closest("#toolbar, dialog")) return;
+  select(e.target.closest(".box"));
 });
 
 function deleteSelected() {
-  const box = pagesEl.querySelector(".text-box.selected");
+  const box = pagesEl.querySelector(".box.selected");
   if (!box) return;
   box.remove();
   select(null);
@@ -148,6 +195,7 @@ deleteBtn.addEventListener("click", deleteSelected);
 
 // While typing, Backspace/Delete edit the text; Delete in an empty field removes it.
 document.addEventListener("keydown", (e) => {
+  if (signatureDialog.open) return;
   const typing = e.target.closest("input, textarea");
   const emptyField = e.target.classList.contains("text-field") && !e.target.value;
   if ((e.key === "Delete" || e.key === "Backspace") && !typing) {
@@ -182,7 +230,7 @@ function createBox(pageEl, {
   color = "#000000", fill = "", font = "Helvetica", bold = false, italic = false,
 }) {
   const box = document.createElement("div");
-  box.className = "text-box";
+  box.className = "box text-box";
   box.dataset.color = color;
   box.dataset.fill = fill;
   box.dataset.maxSize = maxSize;
@@ -202,6 +250,26 @@ function createBox(pageEl, {
   setBounds(box, { left, top, width, height });
   setFontSize(box, size);
   applyStyle(box);
+  return box;
+}
+
+function createSignatureBox(pageEl, { left, top, width, height, src, color = "#000000" }) {
+  const box = document.createElement("div");
+  box.className = "box signature-box";
+  box.dataset.ratio = width / height;
+  box.dataset.color = color;
+
+  const img = document.createElement("img");
+  img.src = src;
+  img.alt = "Signature";
+  img.draggable = false;
+
+  const handle = document.createElement("div");
+  handle.className = "resize-handle";
+
+  box.append(img, handle);
+  pageEl.appendChild(box);
+  setBounds(box, { left, top, width, height });
   return box;
 }
 
@@ -233,7 +301,7 @@ pagesEl.addEventListener("keyup", (e) => {
 // Drag out a bounding box to place a field; a plain click places one at the default size.
 pagesEl.addEventListener("pointerdown", (e) => {
   const pageEl = e.target.closest(".page");
-  if (!pagesEl.classList.contains("placing") || !pageEl || e.target.closest(".text-box")) return;
+  if (!pagesEl.classList.contains("placing") || !pageEl || e.target.closest(".box")) return;
   e.preventDefault();
 
   const rect = pageEl.getBoundingClientRect();
@@ -282,7 +350,7 @@ pagesEl.addEventListener("dblclick", (e) => {
 
 // Drag the box (or a read-only field) to move it, or the corner handle to resize it.
 pagesEl.addEventListener("pointerdown", (e) => {
-  const box = e.target.closest(".text-box");
+  const box = e.target.closest(".box");
   if (!box || (e.target.classList.contains("text-field") && !e.target.readOnly)) return;
   e.preventDefault();
   // preventDefault keeps focus in the textarea, which would swallow the Delete key.
@@ -297,7 +365,13 @@ pagesEl.addEventListener("pointerdown", (e) => {
   const onMove = (ev) => {
     const dx = ev.clientX - start.x;
     const dy = ev.clientY - start.y;
-    if (resizing) {
+    const ratio = Number(box.dataset.ratio);
+    if (resizing && ratio) {
+      // Signatures keep their aspect ratio.
+      const width = clamp(start.width + dx, 30, Math.min(pageW - start.left, (pageH - start.top) * ratio));
+      box.style.width = pct(width, pageW);
+      box.style.height = pct(width / ratio, pageH);
+    } else if (resizing) {
       box.style.width = pct(clamp(start.width + dx, 30, pageW - start.left), pageW);
       box.style.height = pct(clamp(start.height + dy, 16, pageH - start.top), pageH);
     } else {
@@ -309,6 +383,123 @@ pagesEl.addEventListener("pointerdown", (e) => {
   box.setPointerCapture(e.pointerId);
   box.addEventListener("pointermove", onMove);
   box.addEventListener("lostpointercapture", () => box.removeEventListener("pointermove", onMove), { once: true });
+});
+
+const padCtx = signaturePad.getContext("2d");
+
+function clearPad() {
+  padCtx.clearRect(0, 0, signaturePad.width, signaturePad.height);
+  signatureDoneBtn.disabled = true;
+}
+
+signatureBtn.addEventListener("click", () => {
+  setPlacing(false);
+  clearPad();
+  signatureDialog.showModal();
+});
+
+document.getElementById("signature-clear").addEventListener("click", clearPad);
+document.getElementById("signature-cancel").addEventListener("click", () => signatureDialog.close());
+
+signaturePad.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  const rect = signaturePad.getBoundingClientRect();
+  const scale = signaturePad.width / rect.width;
+  const point = (ev) => [(ev.clientX - rect.left) * scale, (ev.clientY - rect.top) * scale];
+  Object.assign(padCtx, { lineWidth: 3 * scale, lineCap: "round", lineJoin: "round", strokeStyle: "#000" });
+
+  let last = point(e);
+  const segmentTo = (ev) => {
+    const next = point(ev);
+    padCtx.beginPath();
+    padCtx.moveTo(...last);
+    padCtx.lineTo(...next);
+    padCtx.stroke();
+    last = next;
+  };
+  segmentTo(e);
+  signatureDoneBtn.disabled = false;
+
+  const onMove = (ev) => (ev.getCoalescedEvents?.() ?? [ev]).forEach(segmentTo);
+  signaturePad.setPointerCapture(e.pointerId);
+  signaturePad.addEventListener("pointermove", onMove);
+  signaturePad.addEventListener("lostpointercapture", () => signaturePad.removeEventListener("pointermove", onMove), { once: true });
+});
+
+// Crops the drawing to its strokes; the unpainted canvas stays transparent in the PNG.
+function trimmedSignature() {
+  const { width, height } = signaturePad;
+  const { data } = padCtx.getImageData(0, 0, width, height);
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (!data[(y * width + x) * 4 + 3]) continue;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+    }
+  }
+  if (maxX < 0) return null;
+  const w = maxX - minX + 1;
+  const h = maxY - minY + 1;
+  const out = document.createElement("canvas");
+  out.width = w;
+  out.height = h;
+  out.getContext("2d").drawImage(signaturePad, minX, minY, w, h, 0, 0, w, h);
+  return out.toDataURL("image/png");
+}
+
+signatureDoneBtn.addEventListener("click", () => {
+  const src = trimmedSignature();
+  if (src) {
+    signaturePreview.src = src;
+    signatureTray.hidden = false;
+  }
+  signatureDialog.close();
+});
+
+// Drag the signature from the toolbar and drop it onto a page.
+signaturePreview.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  const ratio = signaturePreview.naturalWidth / signaturePreview.naturalHeight;
+  const ghost = document.createElement("img");
+  ghost.className = "signature-ghost";
+  ghost.src = signaturePreview.src;
+  ghost.alt = "";
+  ghost.style.width = `${SIGNATURE_WIDTH}px`;
+  ghost.style.height = `${SIGNATURE_WIDTH / ratio}px`;
+  document.body.appendChild(ghost);
+
+  const onMove = (ev) => {
+    ghost.style.left = `${ev.clientX - SIGNATURE_WIDTH / 2}px`;
+    ghost.style.top = `${ev.clientY - SIGNATURE_WIDTH / ratio / 2}px`;
+  };
+  const onDrop = (ev) => {
+    const pageEl = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".page");
+    if (!pageEl) return;
+    const rect = pageEl.getBoundingClientRect();
+    const width = Math.min(SIGNATURE_WIDTH, rect.width, rect.height * ratio);
+    const height = width / ratio;
+    const box = createSignatureBox(pageEl, {
+      left: clamp(ev.clientX - rect.left - width / 2, 0, rect.width - width),
+      top: clamp(ev.clientY - rect.top - height / 2, 0, rect.height - height),
+      width,
+      height,
+      src: signaturePreview.src,
+    });
+    select(box);
+  };
+  onMove(e);
+
+  signaturePreview.setPointerCapture(e.pointerId);
+  signaturePreview.addEventListener("pointermove", onMove);
+  signaturePreview.addEventListener("pointerup", onDrop, { once: true });
+  signaturePreview.addEventListener("lostpointercapture", () => {
+    signaturePreview.removeEventListener("pointermove", onMove);
+    signaturePreview.removeEventListener("pointerup", onDrop);
+    ghost.remove();
+  }, { once: true });
 });
 
 fileInput.addEventListener("change", async (e) => {
@@ -341,6 +532,12 @@ fileInput.addEventListener("change", async (e) => {
 
       const s = (page.view[2] - page.view[0]) / pageEl.clientWidth;
       for (const f of fields[i - 1] ?? []) {
+        if (f.type === "signature") {
+          // Only accept embedded PNGs so a crafted PDF can't point the image at a remote URL.
+          if (typeof f.src !== "string" || !f.src.startsWith(PNG_DATA_URL)) continue;
+          createSignatureBox(pageEl, { left: f.left / s, top: f.top / s, width: f.width / s, height: f.height / s, src: f.src, color: f.color });
+          continue;
+        }
         const box = createBox(pageEl, {
           left: f.left / s - BOX_INSET,
           top: f.top / s - BOX_INSET,
@@ -370,7 +567,11 @@ function contentRefs(page) {
   return contents ? [contents] : [];
 }
 
-// Removes the drawn text fields of a PDF saved by this app and returns their data per page.
+function xobjectDict(page) {
+  return page.node.Resources()?.lookupMaybe(XOBJECT_KEY, PDFDict);
+}
+
+// Removes the drawn text fields and signatures of a PDF saved by this app and returns their data per page.
 async function extractFields(bytes) {
   let doc;
   try {
@@ -391,15 +592,29 @@ async function extractFields(bytes) {
       if (streams.includes(contents.get(i))) contents.remove(i);
     }
     streams.forEach((ref) => removed.add(ref));
+
+    const images = page.node.lookupMaybe(IMAGES_KEY, PDFArray)?.asArray() ?? [];
+    const xobjects = xobjectDict(page);
+    for (const name of images) {
+      const ref = xobjects?.get(name);
+      if (ref) removed.add(ref);
+      xobjects?.delete(name);
+    }
+
     page.node.delete(FIELDS_KEY);
     page.node.delete(STREAMS_KEY);
+    page.node.delete(IMAGES_KEY);
     return JSON.parse(json.decodeText());
   });
   if (!removed.size && !fields.some((f) => f.length)) return { bytes, fields };
 
-  const stillUsed = new Set(doc.getPages().flatMap(contentRefs));
+  const stillUsed = new Set(doc.getPages().flatMap((page) => [...contentRefs(page), ...(xobjectDict(page)?.values() ?? [])]));
   for (const ref of removed) {
-    if (!stillUsed.has(ref)) doc.context.delete(ref);
+    if (stillUsed.has(ref)) continue;
+    // Images keep their transparency in a separate soft mask object.
+    const smask = doc.context.lookup(ref)?.dict?.get(SMASK_KEY);
+    doc.context.delete(ref);
+    if (smask) doc.context.delete(smask);
   }
   return { bytes: await doc.save(), fields };
 }
@@ -416,6 +631,11 @@ async function buildPdf() {
     }
     return fonts.get(name);
   };
+  const images = new Map();
+  const embedImage = async (src) => {
+    if (!images.has(src)) images.set(src, await doc.embedPng(src));
+    return images.get(src);
+  };
   const pdfPages = doc.getPages();
 
   for (const [i, pageEl] of pagesEl.querySelectorAll(".page").entries()) {
@@ -423,6 +643,7 @@ async function buildPdf() {
     const crop = page.getCropBox();
     const s = crop.width / pageEl.clientWidth;
     const before = new Set(contentRefs(page));
+    const xobjectsBefore = new Set(xobjectDict(page)?.keys());
     const fields = [];
 
     for (const box of pageEl.querySelectorAll(".text-box")) {
@@ -457,9 +678,21 @@ async function buildPdf() {
       });
     }
 
+    for (const box of pageEl.querySelectorAll(".signature-box")) {
+      const left = box.offsetLeft * s;
+      const top = box.offsetTop * s;
+      const width = box.offsetWidth * s;
+      const height = box.offsetHeight * s;
+      const { src } = box.querySelector("img");
+      page.drawImage(await embedImage(src), { x: crop.x + left, y: crop.y + crop.height - top - height, width, height });
+      fields.push({ type: "signature", left, top, width, height, src, color: box.dataset.color });
+    }
+
     if (!fields.length) continue;
     page.node.set(FIELDS_KEY, PDFHexString.fromText(JSON.stringify(fields)));
     page.node.set(STREAMS_KEY, doc.context.obj(contentRefs(page).filter((ref) => !before.has(ref))));
+    const newImages = xobjectDict(page)?.keys().filter((name) => !xobjectsBefore.has(name)) ?? [];
+    page.node.set(IMAGES_KEY, doc.context.obj(newImages));
   }
 
   return doc.save();

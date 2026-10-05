@@ -16,6 +16,11 @@
     <input type="file" id="file" accept="application/pdf" hidden />
     <button id="save-btn" type="button" disabled>Save as</button>
     <button id="text-field-btn" type="button">Text Field</button>
+    <button id="signature-btn" type="button">Signature</button>
+    <div id="signature-tray" hidden>
+      <img id="signature-preview" alt="Your signature" title="Drag onto a page" draggable="false" />
+      <small>Drag onto a page</small>
+    </div>
     <fieldset id="text-options" hidden>
       <legend>Text field</legend>
       <label>Text color <input type="color" id="text-color" value="#000000" /></label>
@@ -33,10 +38,25 @@
       </label>
       <label><input type="checkbox" id="font-bold" /> Bold</label>
       <label><input type="checkbox" id="font-italic" /> Italic</label>
-      <button id="delete-btn" type="button">Delete</button>
     </fieldset>
+    <fieldset id="signature-options" hidden>
+      <legend>Signature</legend>
+      <label>Color <input type="color" id="signature-color" value="#000000" /></label>
+      <div class="swatches" data-for="signature-color"></div>
+    </fieldset>
+    <button id="delete-btn" type="button" hidden>Delete</button>
   </aside>
   <main id="pages"></main>
+
+  <dialog id="signature-dialog">
+    <p>Draw your signature</p>
+    <canvas id="signature-pad" width="1000" height="400"></canvas>
+    <div class="dialog-buttons">
+      <button id="signature-clear" type="button">Clear</button>
+      <button id="signature-cancel" type="button">Cancel</button>
+      <button id="signature-done" type="button" disabled>Done</button>
+    </div>
+  </dialog>
 
   <script type="module" src="main.js"></script>
 </body>

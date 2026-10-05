@@ -290,3 +290,152 @@ test("reopening a saved PDF restores its text fields for editing via double-clic
   // The previously drawn text is replaced, not duplicated.
   expect(await pdfTexts(await savePdf(page))).toEqual(["Hello PDF", "hello world"]);
 });
+
+async function drawSignature(page) {
+  await page.click("#signature-btn");
+  await expect(page.locator("#signature-dialog")).toBeVisible();
+  await expect(page.locator("#signature-done")).toBeDisabled();
+  const pad = await page.locator("#signature-pad").boundingBox();
+  await page.mouse.move(pad.x + 50, pad.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(pad.x + 200, pad.y + 60, { steps: 5 });
+  await page.mouse.move(pad.x + 350, pad.y + 140, { steps: 5 });
+  await page.mouse.up();
+  await page.click("#signature-done");
+  await expect(page.locator("#signature-dialog")).toBeHidden();
+}
+
+async function dropSignature(page, x, y) {
+  await page.locator("#signature-preview").dragTo(page.locator(".page"), { targetPosition: { x, y } });
+}
+
+async function pdfImageCount(buffer) {
+  const doc = await getDocument({ data: new Uint8Array(buffer) }).promise;
+  const { fnArray } = await (await doc.getPage(1)).getOperatorList();
+  return fnArray.filter((fn) => fn === OPS.paintImageXObject).length;
+}
+
+const imageObjectCount = (buffer) => (buffer.toString("latin1").match(/\/Subtype\s*\/Image/g) ?? []).length;
+
+test("draws a transparent signature and drags it onto the page", async ({ page }) => {
+  await page.click("#signature-btn");
+  await page.click("#signature-cancel");
+  await expect(page.locator("#signature-dialog")).toBeHidden();
+  await expect(page.locator("#signature-tray")).toBeHidden();
+
+  await drawSignature(page);
+  const preview = page.locator("#signature-preview");
+  await expect(preview).toBeVisible();
+  expect(await preview.getAttribute("src")).toMatch(/^data:image\/png;base64,/);
+
+  const alpha = await preview.evaluate((img) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0);
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const alphas = data.filter((_, i) => i % 4 === 3);
+    return { corner: alphas[0], max: Math.max(...alphas) };
+  });
+  expect(alpha.corner).toBe(0);
+  expect(alpha.max).toBe(255);
+
+  await dropSignature(page, 200, 150);
+  const box = page.locator(".signature-box");
+  await expect(box).toHaveCount(1);
+  await expect(box).toHaveClass(/selected/);
+  await expect(page.locator("#delete-btn")).toBeVisible();
+  await expect(page.locator("#text-options")).toBeHidden();
+  await expect(box.locator("img")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+
+  const origin = await page.locator(".page").boundingBox();
+  const bounds = await box.boundingBox();
+  expect(bounds.width).toBeCloseTo(150, 0);
+  expect(bounds.x + bounds.width / 2 - origin.x).toBeCloseTo(200, 0);
+  expect(bounds.y + bounds.height / 2 - origin.y).toBeCloseTo(150, 0);
+});
+
+test("signature resizes with its aspect ratio and can be deleted", async ({ page }) => {
+  await drawSignature(page);
+  await dropSignature(page, 150, 100);
+  const box = page.locator(".signature-box");
+  const before = await box.boundingBox();
+
+  const handle = await box.locator(".resize-handle").boundingBox();
+  await page.mouse.move(handle.x + 5, handle.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 65, handle.y + 5, { steps: 5 });
+  await page.mouse.up();
+  const after = await box.boundingBox();
+  expect(after.width).toBeCloseTo(before.width + 60, 0);
+  expect(after.width / after.height).toBeCloseTo(before.width / before.height, 1);
+
+  await page.click("#delete-btn");
+  await expect(box).toHaveCount(0);
+  await expect(page.locator("#delete-btn")).toBeHidden();
+});
+
+test("Save as embeds the signature and reopening restores it without duplicating the image", async ({ page }) => {
+  await drawSignature(page);
+  await dropSignature(page, 200, 150);
+  const box = page.locator(".signature-box");
+  const before = await box.boundingBox();
+
+  const saved = await savePdf(page);
+  expect(await pdfImageCount(saved)).toBe(1);
+  // The image plus its soft mask, which carries the transparency.
+  expect(imageObjectCount(saved)).toBe(2);
+
+  await page.setInputFiles("#file", { name: "saved.pdf", mimeType: "application/pdf", buffer: saved });
+  await expect(page.locator("#info")).toHaveText("saved.pdf - 1 page(s)");
+  await expect(box).toHaveCount(1);
+  const after = await box.boundingBox();
+  for (const key of ["x", "y", "width", "height"]) expect(after[key]).toBeCloseTo(before[key], 0);
+
+  const resaved = await savePdf(page);
+  expect(await pdfImageCount(resaved)).toBe(1);
+  expect(imageObjectCount(resaved)).toBe(2);
+});
+
+// Color of the most opaque pixel plus the transparent corner's alpha.
+const signaturePixels = (img) => img.evaluate(async (el) => {
+  await el.decode();
+  const canvas = document.createElement("canvas");
+  canvas.width = el.naturalWidth;
+  canvas.height = el.naturalHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(el, 0, 0);
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let best = 0;
+  for (let i = 3; i < data.length; i += 4) if (data[i] > data[best + 3]) best = i - 3;
+  return { stroke: [...data.slice(best, best + 4)], cornerAlpha: data[3] };
+});
+
+test("changes the signature color and keeps it through save and reopen", async ({ page }) => {
+  await drawSignature(page);
+  await dropSignature(page, 200, 150);
+  await expect(page.locator("#signature-options")).toBeVisible();
+  await expect(page.locator("#signature-color")).toHaveValue("#000000");
+
+  const img = page.locator(".signature-box img");
+  const blackSrc = await img.getAttribute("src");
+  await page.click('.swatches[data-for="signature-color"] .swatch[title="Blue"]');
+  await expect(page.locator("#signature-color")).toHaveValue("#0000ff");
+  await expect(img).not.toHaveAttribute("src", blackSrc);
+  expect(await signaturePixels(img)).toEqual({ stroke: [0, 0, 255, 255], cornerAlpha: 0 });
+
+  await page.fill("#signature-color", "#ff0000");
+  await expect.poll(async () => (await signaturePixels(img)).stroke).toEqual([255, 0, 0, 255]);
+
+  // Selecting a text field swaps the option panels.
+  await placeTextField(page, "x");
+  await expect(page.locator("#signature-options")).toBeHidden();
+  await expect(page.locator("#text-options")).toBeVisible();
+
+  await page.setInputFiles("#file", { name: "saved.pdf", mimeType: "application/pdf", buffer: await savePdf(page) });
+  await expect(page.locator("#info")).toHaveText("saved.pdf - 1 page(s)");
+  await page.click(".signature-box");
+  await expect(page.locator("#signature-color")).toHaveValue("#ff0000");
+  expect((await signaturePixels(img)).stroke).toEqual([255, 0, 0, 255]);
+});

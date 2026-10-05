@@ -9,7 +9,8 @@ Rendering uses [PDF.js](https://mozilla.github.io/pdf.js/), and saving uses [pdf
 - Open and view PDF files
 - Add text fields by clicking or dragging. Move, resize, edit, and delete them.
 - Text options: color, fill (or transparent), font size, font family (Helvetica, Times, Courier), bold, and italic
-- Save as a new PDF. Text fields stay editable when you open the saved file in this editor again.
+- Draw a signature, then drag it onto a page. It has a transparent background, and you can move, resize, recolor, and delete it.
+- Save as a new PDF. Text fields and signatures stay editable when you open the saved file in this editor again.
 
 ## Usage
 
