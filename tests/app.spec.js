@@ -28,10 +28,19 @@ function makePdf() {
   return Buffer.from(pdf, "latin1");
 }
 
+// Plain Enter completes editing, so line breaks are typed with Shift+Enter.
+async function typeLines(page, text) {
+  const lines = text.split("\n");
+  for (const [i, line] of lines.entries()) {
+    if (i > 0) await page.keyboard.press("Shift+Enter");
+    await page.keyboard.type(line);
+  }
+}
+
 async function placeTextField(page, text) {
   await page.click("#text-field-btn");
   await page.click(".page", { position: { x: 60, y: 60 } });
-  await page.keyboard.type(text);
+  await typeLines(page, text);
 }
 
 test.beforeEach(async ({ page }) => {
@@ -51,6 +60,20 @@ test("places a multiline text field with a transparent background", async ({ pag
   await expect(page.locator("#text-options")).toBeVisible();
   await expect(page.locator("#fill-transparent")).toBeChecked();
   await expect(page.locator("#fill-color")).toBeDisabled();
+});
+
+test("Enter completes editing while Shift+Enter inserts a new line", async ({ page }) => {
+  await placeTextField(page, "first");
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("second");
+  await page.keyboard.press("Enter");
+
+  const field = page.locator(".text-field");
+  await expect(field).toHaveValue("first\nsecond");
+  await expect(field).not.toBeFocused();
+  await expect(field).toHaveJSProperty("readOnly", true);
+  await expect(page.locator(".text-box")).not.toHaveClass(/selected/);
+  await expect(page.locator("#text-options")).toBeHidden();
 });
 
 test("applies text and fill colors and keeps them per field", async ({ page }) => {
@@ -172,7 +195,7 @@ test("typing shrinks the font so the text fits the box without scrollbars", asyn
   expect(await fontSize()).toBeCloseTo(14, 0);
   await expect(field).toHaveCSS("overflow", "hidden");
 
-  await page.keyboard.type(" text that is far too long\nfor one line");
+  await typeLines(page, " text that is far too long\nfor one line");
   expect(await fontSize()).toBeLessThan(10);
   expect(await fits()).toBe(true);
 

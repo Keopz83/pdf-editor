@@ -132,6 +132,11 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "Delete" && emptyField) {
     e.preventDefault();
     deleteSelected();
+  } else if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.target.classList.contains("text-field")) {
+    // Shift+Enter falls through to the textarea's default newline.
+    e.preventDefault();
+    e.target.blur();
+    select(null);
   }
 });
 
