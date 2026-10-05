@@ -432,11 +432,21 @@ pagesEl.addEventListener("pointerdown", (e) => {
 });
 
 const padCtx = signaturePad.getContext("2d");
+const smoothingEl = document.getElementById("signature-smoothing");
+let padStrokes = [];
 
 function clearPad() {
+  padStrokes = [];
   padCtx.clearRect(0, 0, signaturePad.width, signaturePad.height);
   signatureDoneBtn.disabled = true;
 }
+
+function redrawPad() {
+  padCtx.clearRect(0, 0, signaturePad.width, signaturePad.height);
+  padStrokes.forEach(drawSmoothStroke);
+}
+
+smoothingEl.addEventListener("input", redrawPad);
 
 signatureBtn.addEventListener("click", () => {
   setPlacing(false);
@@ -454,14 +464,14 @@ signaturePad.addEventListener("pointerdown", (e) => {
   const point = (ev) => [(ev.clientX - rect.left) * scale, (ev.clientY - rect.top) * scale];
   Object.assign(padCtx, { lineWidth: 3 * scale, lineCap: "round", lineJoin: "round", strokeStyle: "#000" });
 
-  let last = point(e);
+  const points = [point(e)];
   const segmentTo = (ev) => {
     const next = point(ev);
     padCtx.beginPath();
-    padCtx.moveTo(...last);
+    padCtx.moveTo(...points.at(-1));
     padCtx.lineTo(...next);
     padCtx.stroke();
-    last = next;
+    points.push(next);
   };
   segmentTo(e);
   signatureDoneBtn.disabled = false;
@@ -469,8 +479,38 @@ signaturePad.addEventListener("pointerdown", (e) => {
   const onMove = (ev) => (ev.getCoalescedEvents?.() ?? [ev]).forEach(segmentTo);
   signaturePad.setPointerCapture(e.pointerId);
   signaturePad.addEventListener("pointermove", onMove);
-  signaturePad.addEventListener("lostpointercapture", () => signaturePad.removeEventListener("pointermove", onMove), { once: true });
+  signaturePad.addEventListener("lostpointercapture", () => {
+    signaturePad.removeEventListener("pointermove", onMove);
+    padStrokes.push(points);
+    redrawPad();
+  }, { once: true });
 });
+
+// Redraws a finished stroke with a light moving average and curves through the midpoints.
+function drawSmoothStroke(points) {
+  const radius = Number(smoothingEl.value);
+  if (radius === 0) {
+    padCtx.beginPath();
+    padCtx.moveTo(...points[0]);
+    points.forEach((p) => padCtx.lineTo(...p));
+    padCtx.stroke();
+    return;
+  }
+  const smoothed = points.map((p, i) => {
+    if (i === 0 || i === points.length - 1) return p;
+    const near = points.slice(Math.max(0, i - radius), i + radius + 1);
+    return [0, 1].map((k) => near.reduce((sum, q) => sum + q[k], 0) / near.length);
+  });
+  padCtx.beginPath();
+  padCtx.moveTo(...smoothed[0]);
+  for (let i = 1; i < smoothed.length - 1; i++) {
+    const [x, y] = smoothed[i];
+    const [nx, ny] = smoothed[i + 1];
+    padCtx.quadraticCurveTo(x, y, (x + nx) / 2, (y + ny) / 2);
+  }
+  padCtx.lineTo(...smoothed.at(-1));
+  padCtx.stroke();
+}
 
 // Crops the drawing to its strokes; the unpainted canvas stays transparent in the PNG.
 function trimmedSignature() {

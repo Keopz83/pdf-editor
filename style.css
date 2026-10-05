@@ -30,6 +30,7 @@ canvas { display: block; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0
 #signature-dialog, #close-dialog { padding: 1rem; border: none; border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); }
 #signature-dialog p, #close-dialog p { margin: 0 0 0.5rem; }
 #signature-pad { width: 500px; cursor: crosshair; touch-action: none; border: 1px solid #ccc; box-shadow: none; }
+#signature-dialog .smoothing { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
 .dialog-buttons { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.75rem; }
 .dialog-buttons #signature-clear, .dialog-buttons #close-discard { margin-right: auto; }
 .text-field { display: block; box-sizing: border-box; width: 100%; height: 100%; font: 14px/1.2 Helvetica, Arial, sans-serif; padding: 2px 4px; border: none; resize: none; background: transparent; overflow: hidden; overflow-wrap: normal; }
