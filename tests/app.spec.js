@@ -6,8 +6,7 @@ import { getDocument, OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
 const PDF_WIDTH = 400;
 const PDF_HEIGHT = 300;
 
-function makePdf() {
-  const content = "BT /F1 24 Tf 50 150 Td (Hello PDF) Tj ET";
+function makePdf(content = "BT /F1 24 Tf 50 150 Td (Hello PDF) Tj ET") {
   const objects = [
     "<</Type/Catalog/Pages 2 0 R>>",
     "<</Type/Pages/Kids[3 0 R]/Count 1>>",
@@ -455,6 +454,60 @@ test("reopening a saved PDF restores its text fields for editing via double-clic
 
   // The previously drawn text is replaced, not duplicated.
   expect(await pdfTexts(await savePdf(page))).toEqual(["Hello PDF", "hello world"]);
+});
+
+// Double-clicks the document's own "Hello PDF" text and replaces it.
+async function editDocumentText(page, keys) {
+  const scale = (await page.locator(".page").evaluate((el) => el.clientWidth)) / PDF_WIDTH;
+  await page.locator(".page canvas").dblclick({ position: { x: 100 * scale, y: (PDF_HEIGHT - 158) * scale } });
+  const input = page.locator(".text-object-input");
+  // The first edit downloads the PDFium WASM binary.
+  await expect(input).toHaveValue("Hello PDF", { timeout: 30_000 });
+  await expect(input).toBeFocused();
+  await page.keyboard.type(keys);
+  return input;
+}
+
+test("double-clicking the document's own text replaces it in the PDF", async ({ page }) => {
+  const input = await editDocumentText(page, "Goodbye PDF");
+  await page.keyboard.press("Enter");
+  await expect(input).toHaveCount(0);
+
+  await page.click("#close-btn");
+  await expect(page.locator("#close-dialog")).toBeVisible();
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#close-save-as")]);
+  expect(await pdfTexts(await readFile(await download.path()))).toEqual(["Goodbye PDF"]);
+});
+
+test("document text with characters missing from its font falls back to a standard font", async ({ page }) => {
+  // The test PDF's font uses StandardEncoding, which has no "ü".
+  await editDocumentText(page, "Grüße");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".text-object-input")).toHaveCount(0);
+  expect(await pdfTexts(await savePdf(page))).toEqual(["Grüße"]);
+});
+
+test("Escape cancels editing the document's own text", async ({ page }) => {
+  const input = await editDocumentText(page, "discarded");
+  await page.keyboard.press("Escape");
+  await expect(input).toHaveCount(0);
+
+  await page.click("#close-btn");
+  await expect(page.locator("#close-dialog")).toBeHidden();
+  await expectClosed(page);
+});
+
+test("document text drawn as separate objects is edited as one run of the same style", async ({ page }) => {
+  // One text object per Tj: "Hello", " " and "PDF" form a run; the smaller and the distant text don't belong to it.
+  const content = "BT /F1 24 Tf 50 150 Td (Hello) Tj ( ) Tj (PDF) Tj /F1 12 Tf ( small) Tj 1 0 0 1 300 150 Tm /F1 24 Tf (Far) Tj ET";
+  await page.setInputFiles("#file", { name: "words.pdf", mimeType: "application/pdf", buffer: makePdf(content) });
+  await expect(page.locator("#info")).toHaveText("words.pdf - 1 page(s)");
+
+  await editDocumentText(page, "Goodbye PDF");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".text-object-input")).toHaveCount(0);
+  const texts = (await pdfTexts(await savePdf(page))).map((t) => t.trim()).filter(Boolean);
+  expect(texts).toEqual(["Goodbye PDF", "small", "Far"]);
 });
 
 async function drawSignature(page) {

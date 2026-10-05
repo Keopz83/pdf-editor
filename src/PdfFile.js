@@ -84,6 +84,8 @@ export class PdfFile {
     this.handle = handle;
     // Editable fields found in the PDF, per page.
     this.fields = fields;
+    // Counts edits of the document's own text, which replace `bytes`.
+    this.revision = 0;
   }
 
   static async load(name, bytes, handle = null) {

@@ -3,9 +3,11 @@ import { Box } from "./Box.js";
 import { OptionsPanel } from "./OptionsPanel.js";
 import { Page } from "./Page.js";
 import { PdfFile } from "./PdfFile.js";
+import { findText, replaceText } from "./pdfium.js";
 import { SignaturePad } from "./SignaturePad.js";
 import { SignatureTray } from "./SignatureTray.js";
 import { TextBox } from "./TextBox.js";
+import { TextObjectInput } from "./TextObjectInput.js";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
@@ -21,6 +23,8 @@ export class Editor {
   selected = null;
   // State of the boxes when the document was last opened or saved, to detect unsaved changes.
   savedSnapshot = "";
+  // Page re-renders after text edits, in order.
+  rendering = Promise.resolve();
 
   constructor() {
     this.pagesEl = $("pages");
@@ -58,9 +62,13 @@ export class Editor {
     this.pagesEl.addEventListener("pointerdown", (e) => this.onPagePointerDown(e));
     this.pagesEl.addEventListener("dblclick", (e) => {
       const box = Box.of(e.target);
-      if (!(box instanceof TextBox)) return;
-      this.select(box);
-      box.edit();
+      const page = Page.of(e.target);
+      if (box instanceof TextBox) {
+        this.select(box);
+        box.edit();
+      } else if (page && e.target === page.canvas && !this.placing) {
+        this.editPageText(page, e);
+      }
     });
   }
 
@@ -119,6 +127,42 @@ export class Editor {
     }
   }
 
+  // Edits the document's own text under the pointer, e.g. of PDFs without form fields.
+  async editPageText(page, e) {
+    const { file } = this;
+    const index = this.pages.indexOf(page);
+    const [x, y] = page.toPdfPoint(e);
+    let input = null;
+    try {
+      const found = await findText(file.bytes, index, x, y);
+      if (!found || this.file !== file) return;
+      input = new TextObjectInput(page, found);
+      const text = await input.result;
+      if (text === null || text === found.text || this.file !== file) return;
+
+      file.bytes = await replaceText(file.bytes, index, found.indices, text);
+      file.revision++;
+      const render = this.rendering.then(() => this.renderPage(file, page));
+      this.rendering = render.catch(() => {});
+      await render;
+    } catch (err) {
+      if (this.file === file) this.infoEl.textContent = `Failed to edit text: ${err.message}`;
+    } finally {
+      // Removed only after re-rendering, so the old text doesn't flash up.
+      input?.remove();
+    }
+  }
+
+  async renderPage(file, page) {
+    if (this.file !== file) return;
+    const pdf = await pdfjsLib.getDocument({ data: file.bytes.slice(0) }).promise;
+    try {
+      await page.renderCanvas(await pdf.getPage(this.pages.indexOf(page) + 1));
+    } finally {
+      pdf.destroy();
+    }
+  }
+
   async addSignature() {
     this.setPlacing(false);
     const src = await this.signaturePad.open();
@@ -126,7 +170,8 @@ export class Editor {
   }
 
   snapshot() {
-    return JSON.stringify(this.pages.flatMap((page) => page.boxes).map((box) => box.state));
+    const boxes = this.pages.flatMap((page) => page.boxes).map((box) => box.state);
+    return JSON.stringify({ revision: this.file?.revision, boxes });
   }
 
   markSaved() {

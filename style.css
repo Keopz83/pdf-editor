@@ -43,3 +43,5 @@ canvas { display: block; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0
 .resize-handle { display: none; position: absolute; right: -5px; bottom: -5px; width: 10px; height: 10px; background: #36c; cursor: nwse-resize; }
 .box.selected .resize-handle { display: block; }
 .text-field[readonly] { cursor: move; outline: none; }
+/* Opaque so it hides the original text; field-sizing lets it grow while typing. */
+.text-object-input { position: absolute; box-sizing: border-box; padding: 0; border: none; outline: 1px dashed #36c; background: #fff; line-height: 1; field-sizing: content; }

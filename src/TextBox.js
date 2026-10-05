@@ -1,7 +1,7 @@
 import { Box } from "./Box.js";
 import { BOX_INSET, clamp, FONT_SIZE, LINE_HEIGHT, TEXT_PAD_Y } from "./layout.js";
 
-const CSS_FONTS = {
+export const CSS_FONTS = {
   Helvetica: "Helvetica, Arial, sans-serif",
   Times: '"Times New Roman", Times, serif',
   Courier: '"Courier New", Courier, monospace',
