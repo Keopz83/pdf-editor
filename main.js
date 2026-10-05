@@ -105,47 +105,103 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-function createBox(pageEl, { left, top, width, height, text = "", size = FONT_SIZE, color = "#000000", fill = "" }) {
-  const pageW = pageEl.clientWidth;
-  const pageH = pageEl.clientHeight;
-  const box = document.createElement("div");
-  box.className = "text-box";
+function setBounds(box, { left, top, width, height }) {
+  const pageW = box.parentElement.clientWidth;
+  const pageH = box.parentElement.clientHeight;
   box.style.left = pct(left, pageW);
   box.style.top = pct(top, pageH);
   box.style.width = pct(width, pageW);
   box.style.height = pct(height, pageH);
+}
+
+function setFontSize(box, size) {
+  box.dataset.size = size;
+  box.querySelector(".text-field").style.fontSize = `${size}px`;
+}
+
+function createBox(pageEl, { left, top, width, height, text = "", size = FONT_SIZE, color = "#000000", fill = "" }) {
+  const box = document.createElement("div");
+  box.className = "text-box";
   box.dataset.color = color;
   box.dataset.fill = fill;
-  box.dataset.size = size;
 
   const input = document.createElement("textarea");
   input.className = "text-field";
   input.value = text;
-  input.style.fontSize = `${size}px`;
 
   const handle = document.createElement("div");
   handle.className = "resize-handle";
 
   box.append(input, handle);
   pageEl.appendChild(box);
+  setBounds(box, { left, top, width, height });
+  setFontSize(box, size);
   applyStyle(box);
   return box;
 }
 
-pagesEl.addEventListener("click", (e) => {
+// Box padding/border plus textarea padding around one line of text.
+const LINE_CHROME = 2 * (BOX_INSET + TEXT_PAD_Y);
+const MIN_BOX = { width: 30, height: 16 };
+
+// Largest font size, up to the default, at which the whole text is visible in the box.
+function fitFontSize(box) {
+  const field = box.querySelector(".text-field");
+  const fits = () => field.scrollHeight <= field.clientHeight && field.scrollWidth <= field.clientWidth;
+  let lo = 1;
+  let hi = FONT_SIZE;
+  setFontSize(box, hi);
+  if (fits()) return;
+  for (let i = 0; i < 12; i++) {
+    const mid = (lo + hi) / 2;
+    setFontSize(box, mid);
+    if (fits()) lo = mid;
+    else hi = mid;
+  }
+  setFontSize(box, lo);
+}
+
+pagesEl.addEventListener("keyup", (e) => {
+  if (e.target.classList.contains("text-field") && !e.target.readOnly) fitFontSize(e.target.parentElement);
+});
+
+// Drag out a bounding box to place a field; a plain click places one at the default size.
+pagesEl.addEventListener("pointerdown", (e) => {
   const pageEl = e.target.closest(".page");
   if (!pagesEl.classList.contains("placing") || !pageEl || e.target.closest(".text-box")) return;
+  e.preventDefault();
 
   const rect = pageEl.getBoundingClientRect();
-  const box = createBox(pageEl, {
-    left: e.clientX - rect.left,
-    top: e.clientY - rect.top,
-    width: Math.min(160, rect.width),
-    height: Math.min(32, rect.height),
+  const point = (ev) => ({
+    x: clamp(ev.clientX - rect.left, 0, rect.width),
+    y: clamp(ev.clientY - rect.top, 0, rect.height),
   });
-  select(box);
-  box.querySelector(".text-field").focus();
-  setPlacing(false);
+  const start = point(e);
+  const box = createBox(pageEl, { left: start.x, top: start.y, width: 0, height: 0 });
+
+  const onMove = (ev) => {
+    const { x, y } = point(ev);
+    setBounds(box, { left: Math.min(x, start.x), top: Math.min(y, start.y), width: Math.abs(x - start.x), height: Math.abs(y - start.y) });
+    fitFontSize(box);
+  };
+
+  pageEl.setPointerCapture(e.pointerId);
+  pageEl.addEventListener("pointermove", onMove);
+  pageEl.addEventListener("lostpointercapture", () => {
+    pageEl.removeEventListener("pointermove", onMove);
+    if (box.offsetWidth < MIN_BOX.width || box.offsetHeight < MIN_BOX.height) {
+      setBounds(box, {
+        left: start.x,
+        top: start.y,
+        width: Math.min(160, rect.width - start.x),
+        height: Math.min(FONT_SIZE * LINE_HEIGHT + LINE_CHROME, rect.height - start.y),
+      });
+      setFontSize(box, FONT_SIZE);
+    }
+    select(box);
+    box.querySelector(".text-field").focus();
+    setPlacing(false);
+  }, { once: true });
 });
 
 // Fields are read-only once deselected; double-click to edit their text again.

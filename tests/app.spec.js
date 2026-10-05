@@ -95,6 +95,47 @@ test("deletes the selected text field via button or Delete key", async ({ page }
   await expect(page.locator(".text-box")).toHaveCount(0);
 });
 
+test("dragging a bounding box places a field with the default font size", async ({ page }) => {
+  await page.click("#text-field-btn");
+  const origin = await page.locator(".page").boundingBox();
+  await page.mouse.move(origin.x + 50, origin.y + 50);
+  await page.mouse.down();
+  await page.mouse.move(origin.x + 250, origin.y + 110, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.type("Big");
+
+  const box = await page.locator(".text-box").boundingBox();
+  expect(box.x - origin.x).toBeCloseTo(50, 0);
+  expect(box.y - origin.y).toBeCloseTo(50, 0);
+  expect(box.width).toBeCloseTo(200, 0);
+  expect(box.height).toBeCloseTo(60, 0);
+
+  const field = page.locator(".text-field");
+  await expect(field).toHaveValue("Big");
+  const fontSize = await field.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(fontSize).toBeCloseTo(14, 1);
+  expect(await field.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
+  await expect(page.locator("#text-field-btn")).not.toHaveClass(/active/);
+});
+
+test("typing shrinks the font so the text fits the box without scrollbars", async ({ page }) => {
+  await placeTextField(page, "short");
+  const field = page.locator(".text-field");
+  const fontSize = () => field.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  const fits = () => field.evaluate((el) => el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth);
+  expect(await fontSize()).toBeCloseTo(14, 0);
+  await expect(field).toHaveCSS("overflow", "hidden");
+
+  await page.keyboard.type(" text that is far too long\nfor one line");
+  expect(await fontSize()).toBeLessThan(10);
+  expect(await fits()).toBe(true);
+
+  await page.keyboard.press("Control+A");
+  await page.keyboard.press("Meta+A");
+  await page.keyboard.type("hi");
+  expect(await fontSize()).toBeCloseTo(14, 0);
+});
+
 test("Save as writes text fields into the PDF", async ({ page }) => {
   await placeTextField(page, "Grüezi\nsecond ✓");
   await page.fill("#text-color", "#ff0000");
@@ -116,9 +157,10 @@ test("Save as writes text fields into the PDF", async ({ page }) => {
 
   // Expected position mirrors the box/padding offsets used by the app.
   const scale = PDF_WIDTH / (await page.locator(".page").evaluate((el) => el.clientWidth));
+  const fontSize = Number(await page.locator(".text-box").getAttribute("data-size"));
   const first = items.find((i) => i.str === "Grüezi");
   expect(first.transform[4]).toBeCloseTo((60 + 5 + 4) * scale, 1);
-  expect(first.transform[5]).toBeCloseTo(PDF_HEIGHT - (60 + 5 + 2 + 14) * scale, 1);
+  expect(first.transform[5]).toBeCloseTo(PDF_HEIGHT - (60 + 5 + 2 + fontSize) * scale, 1);
 
   const { fnArray, argsArray } = await pdfPage.getOperatorList();
   const fillColors = fnArray
