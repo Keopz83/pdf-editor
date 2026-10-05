@@ -109,6 +109,29 @@ for (const el of [textColorEl, fillColorEl, fillTransparentEl, fontSizeEl, fontF
   el.addEventListener("input", updateSelectedStyle);
 }
 
+const BASIC_COLORS = {
+  Black: "#000000", Gray: "#808080", White: "#ffffff", Red: "#ff0000",
+  Orange: "#ff8000", Yellow: "#ffff00", Green: "#008000", Blue: "#0000ff",
+};
+
+for (const container of document.querySelectorAll(".swatches")) {
+  const input = document.getElementById(container.dataset.for);
+  for (const [name, color] of Object.entries(BASIC_COLORS)) {
+    const swatch = document.createElement("button");
+    swatch.type = "button";
+    swatch.className = "swatch";
+    swatch.title = name;
+    swatch.setAttribute("aria-label", name);
+    swatch.style.backgroundColor = color;
+    swatch.addEventListener("click", () => {
+      if (input === fillColorEl) fillTransparentEl.checked = false;
+      input.value = color;
+      updateSelectedStyle();
+    });
+    container.appendChild(swatch);
+  }
+}
+
 document.addEventListener("pointerdown", (e) => {
   if (e.target.closest("#toolbar")) return;
   select(e.target.closest(".text-box"));

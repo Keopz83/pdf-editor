@@ -97,6 +97,20 @@ test("applies text and fill colors and keeps them per field", async ({ page }) =
   await expect(page.locator("#fill-transparent")).not.toBeChecked();
 });
 
+test("basic color swatches set text and fill colors", async ({ page }) => {
+  await placeTextField(page, "hello");
+  await page.click('.swatches[data-for="text-color"] .swatch[title="Blue"]');
+  await page.click('.swatches[data-for="fill-color"] .swatch[title="Yellow"]');
+
+  const field = page.locator(".text-field");
+  await expect(page.locator("#text-color")).toHaveValue("#0000ff");
+  await expect(field).toHaveCSS("color", "rgb(0, 0, 255)");
+  await expect(page.locator("#fill-transparent")).not.toBeChecked();
+  await expect(page.locator("#fill-color")).toBeEnabled();
+  await expect(field).toHaveCSS("background-color", "rgb(255, 255, 0)");
+  await expect(page.locator(".text-box")).toHaveClass(/selected/);
+});
+
 test("applies font size and style and keeps them through save and reopen", async ({ page }) => {
   await page.click("#text-field-btn");
   const origin = await page.locator(".page").boundingBox();
