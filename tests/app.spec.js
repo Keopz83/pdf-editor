@@ -1,0 +1,107 @@
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { test, expect } from "@playwright/test";
+import { getDocument, OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
+
+const PDF_WIDTH = 400;
+const PDF_HEIGHT = 300;
+
+function makePdf() {
+  const content = "BT /F1 24 Tf 50 150 Td (Hello PDF) Tj ET";
+  const objects = [
+    "<</Type/Catalog/Pages 2 0 R>>",
+    "<</Type/Pages/Kids[3 0 R]/Count 1>>",
+    `<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${PDF_WIDTH} ${PDF_HEIGHT}]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>`,
+    `<</Length ${content.length}>>\nstream\n${content}\nendstream`,
+    "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = objects.map((obj, i) => {
+    const offset = pdf.length;
+    pdf += `${i + 1} 0 obj\n${obj}\nendobj\n`;
+    return offset;
+  });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("");
+  pdf += `trailer\n<</Size ${objects.length + 1}/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, "latin1");
+}
+
+async function placeTextField(page, text) {
+  await page.click("#text-field-btn");
+  await page.click(".page", { position: { x: 60, y: 60 } });
+  await page.keyboard.type(text);
+}
+
+test.beforeEach(async ({ page }) => {
+  // Force the download fallback so the test doesn't hit the native save dialog.
+  await page.addInitScript(() => { window.showSaveFilePicker = undefined; });
+  await page.goto("/");
+  await page.setInputFiles("#file", { name: "test.pdf", mimeType: "application/pdf", buffer: makePdf() });
+  await expect(page.locator("#info")).toHaveText("test.pdf - 1 page(s)");
+  await expect(page.locator("#save-btn")).toBeEnabled();
+});
+
+test("places a multiline text field with a transparent background", async ({ page }) => {
+  await placeTextField(page, "line one\nline two");
+
+  await expect(page.locator(".text-field")).toHaveValue("line one\nline two");
+  await expect(page.locator(".text-field")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(page.locator("#text-options")).toBeVisible();
+  await expect(page.locator("#fill-transparent")).toBeChecked();
+  await expect(page.locator("#fill-color")).toBeDisabled();
+});
+
+test("applies text and fill colors and keeps them per field", async ({ page }) => {
+  await placeTextField(page, "hello");
+  await page.fill("#text-color", "#ff0000");
+  await page.uncheck("#fill-transparent");
+  await page.fill("#fill-color", "#ffff00");
+
+  const field = page.locator(".text-field");
+  await expect(field).toHaveCSS("color", "rgb(255, 0, 0)");
+  await expect(field).toHaveCSS("background-color", "rgb(255, 255, 0)");
+  await expect(page.locator(".text-box")).toHaveClass(/selected/);
+
+  await page.click(".page", { position: { x: 300, y: 250 } });
+  await expect(page.locator("#text-options")).toBeHidden();
+
+  await page.click(".text-box", { position: { x: 2, y: 2 } });
+  await expect(page.locator("#text-options")).toBeVisible();
+  await expect(page.locator("#text-color")).toHaveValue("#ff0000");
+  await expect(page.locator("#fill-color")).toHaveValue("#ffff00");
+  await expect(page.locator("#fill-transparent")).not.toBeChecked();
+});
+
+test("Save as writes text fields into the PDF", async ({ page }) => {
+  await placeTextField(page, "Grüezi\nsecond ✓");
+  await page.fill("#text-color", "#ff0000");
+  await page.uncheck("#fill-transparent");
+  await page.fill("#fill-color", "#ffff00");
+
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#save-btn")]);
+  expect(download.suggestedFilename()).toBe("test-edited.pdf");
+
+  const doc = await getDocument({
+    data: new Uint8Array(await readFile(await download.path())),
+    standardFontDataUrl: fileURLToPath(new URL("../node_modules/pdfjs-dist/standard_fonts/", import.meta.url)),
+  }).promise;
+  const pdfPage = await doc.getPage(1);
+  const { items } = await pdfPage.getTextContent();
+  const texts = items.map((i) => i.str).filter(Boolean);
+  // Characters outside WinAnsi are replaced with "?".
+  expect(texts).toEqual(["Hello PDF", "Grüezi", "second ?"]);
+
+  // Expected position mirrors the box/padding offsets used by the app.
+  const scale = PDF_WIDTH / (await page.locator(".page").evaluate((el) => el.clientWidth));
+  const first = items.find((i) => i.str === "Grüezi");
+  expect(first.transform[4]).toBeCloseTo((60 + 5 + 4) * scale, 1);
+  expect(first.transform[5]).toBeCloseTo(PDF_HEIGHT - (60 + 5 + 2 + 14) * scale, 1);
+
+  const { fnArray, argsArray } = await pdfPage.getOperatorList();
+  const fillColors = fnArray
+    .map((fn, i) => (fn === OPS.setFillRGBColor ? argsArray[i].join(",") : null))
+    .filter(Boolean);
+  expect(fillColors).toEqual(expect.arrayContaining(["255,255,0", "255,0,0"]));
+});
