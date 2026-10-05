@@ -178,6 +178,7 @@ pagesEl.addEventListener("pointerdown", (e) => {
   });
   const start = point(e);
   const box = createBox(pageEl, { left: start.x, top: start.y, width: 0, height: 0 });
+  box.classList.add("drawing");
 
   const onMove = (ev) => {
     const { x, y } = point(ev);
@@ -189,6 +190,7 @@ pagesEl.addEventListener("pointerdown", (e) => {
   pageEl.addEventListener("pointermove", onMove);
   pageEl.addEventListener("lostpointercapture", () => {
     pageEl.removeEventListener("pointermove", onMove);
+    box.classList.remove("drawing");
     if (box.offsetWidth < MIN_BOX.width || box.offsetHeight < MIN_BOX.height) {
       setBounds(box, {
         left: start.x,

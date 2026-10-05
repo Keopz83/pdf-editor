@@ -101,7 +101,11 @@ test("dragging a bounding box places a field with the default font size", async 
   await page.mouse.move(origin.x + 50, origin.y + 50);
   await page.mouse.down();
   await page.mouse.move(origin.x + 250, origin.y + 110, { steps: 5 });
+  const drawing = page.locator(".text-box.drawing");
+  await expect(drawing).toBeVisible();
+  expect(await drawing.evaluate((el) => getComputedStyle(el).borderTopColor)).not.toBe("rgba(0, 0, 0, 0)");
   await page.mouse.up();
+  await expect(page.locator(".text-box.drawing")).toHaveCount(0);
   await page.keyboard.type("Big");
 
   const box = await page.locator(".text-box").boundingBox();
