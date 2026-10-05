@@ -74,6 +74,27 @@ test("applies text and fill colors and keeps them per field", async ({ page }) =
   await expect(page.locator("#fill-transparent")).not.toBeChecked();
 });
 
+test("deletes the selected text field via button or Delete key", async ({ page }) => {
+  await placeTextField(page, "remove me");
+  // Backspace while typing edits the text instead of deleting the field.
+  await page.keyboard.press("Backspace");
+  await expect(page.locator(".text-field")).toHaveValue("remove m");
+
+  await page.click("#delete-btn");
+  await expect(page.locator(".text-box")).toHaveCount(0);
+  await expect(page.locator("#text-options")).toBeHidden();
+
+  await placeTextField(page, "again");
+  await page.click(".text-box", { position: { x: 2, y: 2 } });
+  await page.keyboard.press("Delete");
+  await expect(page.locator(".text-box")).toHaveCount(0);
+
+  // A freshly placed, still empty field can be removed straight away.
+  await placeTextField(page, "");
+  await page.keyboard.press("Delete");
+  await expect(page.locator(".text-box")).toHaveCount(0);
+});
+
 test("Save as writes text fields into the PDF", async ({ page }) => {
   await placeTextField(page, "Grüezi\nsecond ✓");
   await page.fill("#text-color", "#ff0000");

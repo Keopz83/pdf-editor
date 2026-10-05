@@ -13,6 +13,7 @@ const textColorEl = document.getElementById("text-color");
 const fillColorEl = document.getElementById("fill-color");
 const fillTransparentEl = document.getElementById("fill-transparent");
 const saveBtn = document.getElementById("save-btn");
+const deleteBtn = document.getElementById("delete-btn");
 
 let currentFile = null;
 
@@ -69,6 +70,27 @@ document.addEventListener("pointerdown", (e) => {
   select(e.target.closest(".text-box"));
 });
 
+function deleteSelected() {
+  const box = pagesEl.querySelector(".text-box.selected");
+  if (!box) return;
+  box.remove();
+  select(null);
+}
+
+deleteBtn.addEventListener("click", deleteSelected);
+
+// While typing, Backspace/Delete edit the text; Delete in an empty field removes it.
+document.addEventListener("keydown", (e) => {
+  const typing = e.target.closest("input, textarea");
+  const emptyField = e.target.classList.contains("text-field") && !e.target.value;
+  if ((e.key === "Delete" || e.key === "Backspace") && !typing) {
+    deleteSelected();
+  } else if (e.key === "Delete" && emptyField) {
+    e.preventDefault();
+    deleteSelected();
+  }
+});
+
 pagesEl.addEventListener("click", (e) => {
   const pageEl = e.target.closest(".page");
   if (!pagesEl.classList.contains("placing") || !pageEl || e.target.closest(".text-box")) return;
@@ -102,6 +124,8 @@ pagesEl.addEventListener("pointerdown", (e) => {
   const box = e.target.closest(".text-box");
   if (!box || e.target.classList.contains("text-field")) return;
   e.preventDefault();
+  // preventDefault keeps focus in the textarea, which would swallow the Delete key.
+  document.activeElement?.blur();
 
   const page = box.parentElement;
   const pageW = page.clientWidth;
