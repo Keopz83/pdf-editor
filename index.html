@@ -15,6 +15,12 @@
     <button id="open-btn" type="button">Open</button>
     <input type="file" id="file" accept="application/pdf" hidden />
     <button id="text-field-btn" type="button">Text Field</button>
+    <fieldset id="text-options" hidden>
+      <legend>Text field</legend>
+      <label>Text color <input type="color" id="text-color" value="#000000" /></label>
+      <label>Fill <input type="color" id="fill-color" value="#ffffff" disabled /></label>
+      <label><input type="checkbox" id="fill-transparent" checked /> Transparent</label>
+    </fieldset>
   </aside>
   <main id="pages"></main>
 
