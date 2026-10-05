@@ -74,6 +74,48 @@ test("applies text and fill colors and keeps them per field", async ({ page }) =
   await expect(page.locator("#fill-transparent")).not.toBeChecked();
 });
 
+test("applies font size and style and keeps them through save and reopen", async ({ page }) => {
+  await page.click("#text-field-btn");
+  const origin = await page.locator(".page").boundingBox();
+  await page.mouse.move(origin.x + 50, origin.y + 50);
+  await page.mouse.down();
+  await page.mouse.move(origin.x + 350, origin.y + 150, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.type("Styled");
+
+  await expect(page.locator("#font-size")).toHaveValue("14");
+  await page.fill("#font-size", "24");
+  await page.selectOption("#font-family", "Times");
+  await page.check("#font-bold");
+  await page.check("#font-italic");
+
+  const field = page.locator(".text-field");
+  await expect(field).toHaveCSS("font-size", "24px");
+  await expect(field).toHaveCSS("font-weight", "700");
+  await expect(field).toHaveCSS("font-style", "italic");
+  expect(await field.evaluate((el) => getComputedStyle(el).fontFamily)).toContain("Times");
+
+  const pdf = await savePdf(page);
+  const doc = await getDocument({
+    data: new Uint8Array(pdf),
+    standardFontDataUrl: fileURLToPath(new URL("../node_modules/pdfjs-dist/standard_fonts/", import.meta.url)),
+  }).promise;
+  const pdfPage = await doc.getPage(1);
+  await pdfPage.getOperatorList();
+  const { items } = await pdfPage.getTextContent();
+  const styled = items.find((i) => i.str === "Styled");
+  const font = pdfPage.commonObjs.get(styled.fontName);
+  expect(font.name).toMatch(/Times-BoldItalic/);
+
+  await page.setInputFiles("#file", { name: "saved.pdf", mimeType: "application/pdf", buffer: pdf });
+  await expect(page.locator("#info")).toHaveText("saved.pdf - 1 page(s)");
+  await page.click(".text-box", { position: { x: 2, y: 2 } });
+  await expect(page.locator("#font-size")).toHaveValue("24");
+  await expect(page.locator("#font-family")).toHaveValue("Times");
+  await expect(page.locator("#font-bold")).toBeChecked();
+  await expect(page.locator("#font-italic")).toBeChecked();
+});
+
 test("deletes the selected text field via button or Delete key", async ({ page }) => {
   await placeTextField(page, "remove me");
   // Backspace while typing edits the text instead of deleting the field.

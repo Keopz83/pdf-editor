@@ -12,6 +12,10 @@ const textOptions = document.getElementById("text-options");
 const textColorEl = document.getElementById("text-color");
 const fillColorEl = document.getElementById("fill-color");
 const fillTransparentEl = document.getElementById("fill-transparent");
+const fontSizeEl = document.getElementById("font-size");
+const fontFamilyEl = document.getElementById("font-family");
+const fontBoldEl = document.getElementById("font-bold");
+const fontItalicEl = document.getElementById("font-italic");
 const saveBtn = document.getElementById("save-btn");
 const deleteBtn = document.getElementById("delete-btn");
 
@@ -26,6 +30,19 @@ const LINE_HEIGHT = 1.2;
 const FIELDS_KEY = PDFName.of("PdfEditorFields");
 const STREAMS_KEY = PDFName.of("PdfEditorStreams");
 const CONTENTS_KEY = PDFName.of("Contents");
+
+const CSS_FONTS = {
+  Helvetica: "Helvetica, Arial, sans-serif",
+  Times: '"Times New Roman", Times, serif',
+  Courier: '"Courier New", Courier, monospace',
+};
+
+// Indexed by [bold][italic].
+const PDF_FONTS = {
+  Helvetica: [[StandardFonts.Helvetica, StandardFonts.HelveticaOblique], [StandardFonts.HelveticaBold, StandardFonts.HelveticaBoldOblique]],
+  Times: [[StandardFonts.TimesRoman, StandardFonts.TimesRomanItalic], [StandardFonts.TimesRomanBold, StandardFonts.TimesRomanBoldItalic]],
+  Courier: [[StandardFonts.Courier, StandardFonts.CourierOblique], [StandardFonts.CourierBold, StandardFonts.CourierBoldOblique]],
+};
 
 let currentFile = null;
 
@@ -58,12 +75,19 @@ function select(box) {
   fillTransparentEl.checked = !box.dataset.fill;
   if (box.dataset.fill) fillColorEl.value = box.dataset.fill;
   fillColorEl.disabled = fillTransparentEl.checked;
+  fontSizeEl.value = Math.round(box.dataset.maxSize);
+  fontFamilyEl.value = box.dataset.font;
+  fontBoldEl.checked = !!box.dataset.bold;
+  fontItalicEl.checked = !!box.dataset.italic;
 }
 
 function applyStyle(box) {
   const field = box.querySelector(".text-field");
   field.style.color = box.dataset.color;
   field.style.backgroundColor = box.dataset.fill || "transparent";
+  field.style.fontFamily = CSS_FONTS[box.dataset.font];
+  field.style.fontWeight = box.dataset.bold ? "bold" : "normal";
+  field.style.fontStyle = box.dataset.italic ? "italic" : "normal";
 }
 
 function updateSelectedStyle() {
@@ -72,10 +96,16 @@ function updateSelectedStyle() {
   if (!box) return;
   box.dataset.color = textColorEl.value;
   box.dataset.fill = fillTransparentEl.checked ? "" : fillColorEl.value;
+  box.dataset.font = fontFamilyEl.value;
+  box.dataset.bold = fontBoldEl.checked ? "1" : "";
+  box.dataset.italic = fontItalicEl.checked ? "1" : "";
+  const size = Number(fontSizeEl.value);
+  if (size >= Number(fontSizeEl.min) && size <= Number(fontSizeEl.max)) box.dataset.maxSize = size;
   applyStyle(box);
+  fitFontSize(box);
 }
 
-for (const el of [textColorEl, fillColorEl, fillTransparentEl]) {
+for (const el of [textColorEl, fillColorEl, fillTransparentEl, fontSizeEl, fontFamilyEl, fontBoldEl, fontItalicEl]) {
   el.addEventListener("input", updateSelectedStyle);
 }
 
@@ -119,11 +149,18 @@ function setFontSize(box, size) {
   box.querySelector(".text-field").style.fontSize = `${size}px`;
 }
 
-function createBox(pageEl, { left, top, width, height, text = "", size = FONT_SIZE, color = "#000000", fill = "" }) {
+function createBox(pageEl, {
+  left, top, width, height, text = "", size = FONT_SIZE, maxSize = FONT_SIZE,
+  color = "#000000", fill = "", font = "Helvetica", bold = false, italic = false,
+}) {
   const box = document.createElement("div");
   box.className = "text-box";
   box.dataset.color = color;
   box.dataset.fill = fill;
+  box.dataset.maxSize = maxSize;
+  box.dataset.font = font;
+  box.dataset.bold = bold ? "1" : "";
+  box.dataset.italic = italic ? "1" : "";
 
   const input = document.createElement("textarea");
   input.className = "text-field";
@@ -144,12 +181,12 @@ function createBox(pageEl, { left, top, width, height, text = "", size = FONT_SI
 const LINE_CHROME = 2 * (BOX_INSET + TEXT_PAD_Y);
 const MIN_BOX = { width: 30, height: 16 };
 
-// Largest font size, up to the default, at which the whole text is visible in the box.
+// Largest font size, up to the chosen one, at which the whole text is visible in the box.
 function fitFontSize(box) {
   const field = box.querySelector(".text-field");
   const fits = () => field.scrollHeight <= field.clientHeight && field.scrollWidth <= field.clientWidth;
   let lo = 1;
-  let hi = FONT_SIZE;
+  let hi = Number(box.dataset.maxSize);
   setFontSize(box, hi);
   if (fits()) return;
   for (let i = 0; i < 12; i++) {
@@ -282,9 +319,13 @@ fileInput.addEventListener("change", async (e) => {
           width: f.width / s + 2 * BOX_INSET,
           height: f.height / s + 2 * BOX_INSET,
           size: f.size / s,
+          maxSize: (f.maxSize ?? f.size) / s,
           text: f.text,
           color: f.color,
           fill: f.fill,
+          font: f.font,
+          bold: f.bold,
+          italic: f.italic,
         });
         box.querySelector(".text-field").readOnly = true;
       }
@@ -339,11 +380,17 @@ const hexToRgb = (hex) => rgb(...[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 
 
 async function buildPdf() {
   const doc = await PDFDocument.load(currentFile.bytes);
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const charset = new Set(font.getCharacterSet());
+  const fonts = new Map();
+  const embed = async (name) => {
+    if (!fonts.has(name)) {
+      const font = await doc.embedFont(name);
+      fonts.set(name, { font, charset: new Set(font.getCharacterSet()) });
+    }
+    return fonts.get(name);
+  };
   const pdfPages = doc.getPages();
 
-  pagesEl.querySelectorAll(".page").forEach((pageEl, i) => {
+  for (const [i, pageEl] of pagesEl.querySelectorAll(".page").entries()) {
     const page = pdfPages[i];
     const crop = page.getCropBox();
     const s = crop.width / pageEl.clientWidth;
@@ -356,15 +403,18 @@ async function buildPdf() {
       const width = (box.offsetWidth - 2 * BOX_INSET) * s;
       const height = (box.offsetHeight - 2 * BOX_INSET) * s;
       const size = Number(box.dataset.size) * s;
+      const maxSize = Number(box.dataset.maxSize) * s;
       const value = box.querySelector(".text-field").value;
       const { color, fill } = box.dataset;
-      fields.push({ left: x - crop.x, top: crop.y + crop.height - top, width, height, size, text: value, color, fill });
+      const style = { font: box.dataset.font, bold: !!box.dataset.bold, italic: !!box.dataset.italic };
+      fields.push({ left: x - crop.x, top: crop.y + crop.height - top, width, height, size, maxSize, text: value, color, fill, ...style });
+      const { font, charset } = await embed(PDF_FONTS[style.font][+style.bold][+style.italic]);
 
       if (fill) {
         page.drawRectangle({ x, y: top - height, width, height, color: hexToRgb(fill) });
       }
 
-      // Helvetica only covers WinAnsi; replace anything else so drawText doesn't throw.
+      // Standard fonts only cover WinAnsi; replace anything else so drawText doesn't throw.
       const text = [...value].map((c) => (c === "\n" || charset.has(c.codePointAt(0)) ? c : "?")).join("");
       if (!text.trim()) continue;
 
@@ -379,10 +429,10 @@ async function buildPdf() {
       });
     }
 
-    if (!fields.length) return;
+    if (!fields.length) continue;
     page.node.set(FIELDS_KEY, PDFHexString.fromText(JSON.stringify(fields)));
     page.node.set(STREAMS_KEY, doc.context.obj(contentRefs(page).filter((ref) => !before.has(ref))));
-  });
+  }
 
   return doc.save();
 }
