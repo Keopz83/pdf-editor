@@ -1,5 +1,5 @@
 import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, StandardFonts, rgb } from "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm";
+import { PageSizes, PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, StandardFonts, rgb } from "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
@@ -17,6 +17,9 @@ const fontFamilyEl = document.getElementById("font-family");
 const fontBoldEl = document.getElementById("font-bold");
 const fontItalicEl = document.getElementById("font-italic");
 const saveBtn = document.getElementById("save-btn");
+const saveAsBtn = document.getElementById("save-as-btn");
+const closeBtn = document.getElementById("close-btn");
+const closeDialog = document.getElementById("close-dialog");
 const deleteBtn = document.getElementById("delete-btn");
 const signatureBtn = document.getElementById("signature-btn");
 const signatureTray = document.getElementById("signature-tray");
@@ -59,8 +62,51 @@ const PDF_FONTS = {
 };
 
 let currentFile = null;
+// State of the boxes when the document was last opened or saved, to detect unsaved changes.
+let savedSnapshot = "";
 
-document.getElementById("open-btn").addEventListener("click", () => fileInput.click());
+const PDF_TYPES = [{ description: "PDF document", accept: { "application/pdf": [".pdf"] } }];
+
+const snapshot = () => JSON.stringify([...pagesEl.querySelectorAll(".box")].map((box) => ({
+  bounds: box.style.cssText,
+  data: { ...box.dataset },
+  text: box.querySelector(".text-field")?.value,
+  src: box.querySelector("img")?.src,
+})));
+
+function askToSave() {
+  document.getElementById("close-name").textContent = currentFile.name;
+  closeDialog.returnValue = "";
+  closeDialog.showModal();
+  return new Promise((resolve) => {
+    closeDialog.addEventListener("close", () => resolve(closeDialog.returnValue), { once: true });
+  });
+}
+
+// Resolves to false if the user cancels or saving fails.
+async function confirmClose() {
+  if (!currentFile || snapshot() === savedSnapshot) return true;
+  const choice = await askToSave();
+  if (choice === "save") return save();
+  if (choice === "save-as") return saveAs();
+  return choice === "discard";
+}
+
+document.getElementById("open-btn").addEventListener("click", async () => {
+  if (!(await confirmClose())) return;
+  if (!window.showOpenFilePicker) {
+    fileInput.click();
+    return;
+  }
+  try {
+    // Unlike the file input, a picker handle lets Save write back to the opened file.
+    const [handle] = await window.showOpenFilePicker({ types: PDF_TYPES });
+    const file = await handle.getFile();
+    openPdf(file.name, () => file.arrayBuffer(), handle);
+  } catch (err) {
+    if (err.name !== "AbortError") infoEl.textContent = `Failed to open PDF: ${err.message}`;
+  }
+});
 
 function setPlacing(on) {
   pagesEl.classList.toggle("placing", on);
@@ -195,7 +241,7 @@ deleteBtn.addEventListener("click", deleteSelected);
 
 // While typing, Backspace/Delete edit the text; Delete in an empty field removes it.
 document.addEventListener("keydown", (e) => {
-  if (signatureDialog.open) return;
+  if (document.querySelector("dialog[open]")) return;
   const typing = e.target.closest("input, textarea");
   const emptyField = e.target.classList.contains("text-field") && !e.target.value;
   if ((e.key === "Delete" || e.key === "Backspace") && !typing) {
@@ -502,21 +548,47 @@ signaturePreview.addEventListener("pointerdown", (e) => {
   }, { once: true });
 });
 
-fileInput.addEventListener("change", async (e) => {
+fileInput.addEventListener("change", (e) => {
   const file = e.target.files[0];
-  if (!file) return;
+  if (file) openPdf(file.name, () => file.arrayBuffer());
+});
 
+document.getElementById("new-btn").addEventListener("click", async () => {
+  if (!(await confirmClose())) return;
+  openPdf("Untitled.pdf", async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage(PageSizes.A4);
+    return doc.save();
+  });
+});
+
+function closePdf() {
   pagesEl.replaceChildren();
   select(null);
+  setPlacing(false);
+  currentFile = null;
   saveBtn.disabled = true;
+  saveAsBtn.disabled = true;
+  closeBtn.disabled = true;
+  infoEl.textContent = "";
+  // Lets the same file be picked again after closing.
+  fileInput.value = "";
+}
+
+closeBtn.addEventListener("click", async () => {
+  if (await confirmClose()) closePdf();
+});
+
+async function openPdf(name, readBytes, handle = null) {
+  closePdf();
   infoEl.textContent = "Loading...";
 
   try {
-    const { bytes, fields } = await extractFields(await file.arrayBuffer());
+    const { bytes, fields } = await extractFields(await readBytes());
     // pdf.js detaches the buffer it receives, so keep the original for saving.
     const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
-    currentFile = { name: file.name, bytes };
-    infoEl.textContent = `${file.name} - ${pdf.numPages} page(s)`;
+    currentFile = { name, bytes, handle };
+    infoEl.textContent = `${name} - ${pdf.numPages} page(s)`;
 
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
@@ -555,11 +627,16 @@ fileInput.addEventListener("change", async (e) => {
         box.querySelector(".text-field").readOnly = true;
       }
     }
+    savedSnapshot = snapshot();
     saveBtn.disabled = false;
+    saveAsBtn.disabled = false;
   } catch (err) {
     infoEl.textContent = `Failed to open PDF: ${err.message}`;
+  } finally {
+    // Also lets a partially rendered document be cleared after a failure.
+    closeBtn.disabled = false;
   }
-});
+}
 
 function contentRefs(page) {
   const contents = page.node.get(CONTENTS_KEY);
@@ -698,18 +775,40 @@ async function buildPdf() {
   return doc.save();
 }
 
-saveBtn.addEventListener("click", async () => {
+async function writeTo(handle) {
+  const writable = await handle.createWritable();
+  await writable.write(await buildPdf());
+  await writable.close();
+}
+
+// Overwrites the opened file; documents without a writable file fall back to Save as.
+async function save() {
+  const { handle } = currentFile;
+  if (!handle) return saveAs();
+  try {
+    if ((await handle.requestPermission({ mode: "readwrite" })) !== "granted") {
+      infoEl.textContent = "Failed to save PDF: permission denied";
+      return false;
+    }
+    await writeTo(handle);
+    savedSnapshot = snapshot();
+    return true;
+  } catch (err) {
+    infoEl.textContent = `Failed to save PDF: ${err.message}`;
+    return false;
+  }
+}
+
+async function saveAs() {
   const suggestedName = currentFile.name.replace(/\.pdf$/i, "") + "-edited.pdf";
   try {
     if (window.showSaveFilePicker) {
       // Open the picker first; it requires the click's user activation.
-      const handle = await window.showSaveFilePicker({
-        suggestedName,
-        types: [{ description: "PDF document", accept: { "application/pdf": [".pdf"] } }],
-      });
-      const writable = await handle.createWritable();
-      await writable.write(await buildPdf());
-      await writable.close();
+      const handle = await window.showSaveFilePicker({ suggestedName, types: PDF_TYPES });
+      await writeTo(handle);
+      // Later saves go to the new file.
+      Object.assign(currentFile, { handle, name: handle.name });
+      infoEl.textContent = `${handle.name} - ${pagesEl.querySelectorAll(".page").length} page(s)`;
     } else {
       const url = URL.createObjectURL(new Blob([await buildPdf()], { type: "application/pdf" }));
       const a = document.createElement("a");
@@ -718,7 +817,13 @@ saveBtn.addEventListener("click", async () => {
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
+    savedSnapshot = snapshot();
+    return true;
   } catch (err) {
     if (err.name !== "AbortError") infoEl.textContent = `Failed to save PDF: ${err.message}`;
+    return false;
   }
-});
+}
+
+saveBtn.addEventListener("click", save);
+saveAsBtn.addEventListener("click", saveAs);

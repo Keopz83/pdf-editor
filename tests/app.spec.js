@@ -50,6 +50,172 @@ test.beforeEach(async ({ page }) => {
   await page.setInputFiles("#file", { name: "test.pdf", mimeType: "application/pdf", buffer: makePdf() });
   await expect(page.locator("#info")).toHaveText("test.pdf - 1 page(s)");
   await expect(page.locator("#save-btn")).toBeEnabled();
+  await expect(page.locator("#save-as-btn")).toBeEnabled();
+});
+
+test("New creates a blank A4 document that can be edited and saved", async ({ page }) => {
+  await placeTextField(page, "discarded");
+  await expect(page.locator("#toolbar button").first()).toHaveText("New");
+  await page.click("#new-btn");
+  await page.click("#close-discard");
+  await expect(page.locator("#info")).toHaveText("Untitled.pdf - 1 page(s)");
+  await expect(page.locator(".page")).toHaveCount(1);
+  await expect(page.locator(".text-box")).toHaveCount(0);
+
+  const canvas = page.locator(".page canvas");
+  const ratio = await canvas.evaluate((el) => el.height / el.width);
+  expect(ratio).toBeCloseTo(841.89 / 595.28, 2);
+
+  await placeTextField(page, "Fresh");
+  // A new document has no file yet, so Save falls back to Save as.
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#save-btn")]);
+  expect(download.suggestedFilename()).toBe("Untitled-edited.pdf");
+  const saved = await readFile(await download.path());
+  const doc = await getDocument({
+    data: new Uint8Array(saved),
+    standardFontDataUrl: fileURLToPath(new URL("../node_modules/pdfjs-dist/standard_fonts/", import.meta.url)),
+  }).promise;
+  const pdfPage = await doc.getPage(1);
+  expect(pdfPage.view.map((v) => Math.round(v))).toEqual([0, 0, 595, 842]);
+  const { items } = await pdfPage.getTextContent();
+  expect(items.map((i) => i.str).filter(Boolean)).toEqual(["Fresh"]);
+});
+
+async function expectClosed(page) {
+  await expect(page.locator(".page")).toHaveCount(0);
+  await expect(page.locator("#info")).toHaveText("");
+  await expect(page.locator("#save-btn")).toBeDisabled();
+  await expect(page.locator("#save-as-btn")).toBeDisabled();
+  await expect(page.locator("#close-btn")).toBeDisabled();
+}
+
+test("Close without changes closes the document right away", async ({ page }) => {
+  await page.click("#close-btn");
+  await expect(page.locator("#close-dialog")).toBeHidden();
+  await expectClosed(page);
+
+  await page.setInputFiles("#file", { name: "test.pdf", mimeType: "application/pdf", buffer: makePdf() });
+  await expect(page.locator("#info")).toHaveText("test.pdf - 1 page(s)");
+  await expect(page.locator("#close-btn")).toBeEnabled();
+});
+
+test("Close with unsaved changes asks to save; Cancel keeps and Don't Save discards", async ({ page }) => {
+  await placeTextField(page, "pending");
+  await page.click("#close-btn");
+  await expect(page.locator("#close-dialog")).toBeVisible();
+  await expect(page.locator("#close-name")).toHaveText("test.pdf");
+  await expect(page.locator("#close-save")).toBeFocused();
+
+  await page.click("#close-cancel");
+  await expect(page.locator("#close-dialog")).toBeHidden();
+  await expect(page.locator(".text-field")).toHaveValue("pending");
+
+  // Escape cancels as well.
+  await page.click("#close-btn");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".text-box")).toHaveCount(1);
+
+  await page.click("#close-btn");
+  await page.click("#close-discard");
+  await expectClosed(page);
+});
+
+test("Save as from the close prompt saves the PDF before closing", async ({ page }) => {
+  await placeTextField(page, "keep me");
+  await page.click("#close-btn");
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#close-save-as")]);
+  await expectClosed(page);
+  expect(download.suggestedFilename()).toBe("test-edited.pdf");
+  expect(await pdfTexts(await readFile(await download.path()))).toEqual(["Hello PDF", "keep me"]);
+});
+
+test("Save from the close prompt falls back to Save as without a writable file", async ({ page }) => {
+  await placeTextField(page, "keep me");
+  await page.click("#close-btn");
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#close-save")]);
+  await expectClosed(page);
+  expect(await pdfTexts(await readFile(await download.path()))).toEqual(["Hello PDF", "keep me"]);
+});
+
+test("Save from the close prompt overwrites the file picked via Open", async ({ page }) => {
+  await mockFilePickers(page);
+  await page.click("#open-btn");
+  await expect(page.locator("#info")).toHaveText("picked.pdf - 1 page(s)");
+  await placeTextField(page, "overwritten");
+  await page.click("#close-btn");
+  await expect(page.locator("#close-save")).toBeFocused();
+  await page.click("#close-save");
+  await expectClosed(page);
+
+  const written = await writtenFiles(page);
+  expect(written["picked.pdf"]).toHaveLength(1);
+  expect(await pdfTexts(written["picked.pdf"][0])).toEqual(["Hello PDF", "overwritten"]);
+});
+
+// Fake File System Access handles; every write is recorded per file name in window.written.
+async function mockFilePickers(page) {
+  await page.evaluate((bytes) => {
+    window.written = {};
+    const makeHandle = (name) => ({
+      name,
+      getFile: async () => new File([new Uint8Array(bytes)], name, { type: "application/pdf" }),
+      requestPermission: async () => "granted",
+      createWritable: async () => ({
+        write: async (data) => (window.written[name] ??= []).push(Array.from(new Uint8Array(data))),
+        close: async () => {},
+      }),
+    });
+    window.showOpenFilePicker = async () => [makeHandle("picked.pdf")];
+    window.showSaveFilePicker = async () => makeHandle("copy.pdf");
+  }, [...makePdf()]);
+}
+
+async function writtenFiles(page) {
+  const written = await page.evaluate(() => window.written);
+  return Object.fromEntries(Object.entries(written).map(([name, writes]) => [name, writes.map((w) => Buffer.from(w))]));
+}
+
+test("toolbar Save writes changes back to the opened file", async ({ page }) => {
+  await mockFilePickers(page);
+  await page.click("#open-btn");
+  await expect(page.locator("#info")).toHaveText("picked.pdf - 1 page(s)");
+  await placeTextField(page, "first");
+  await page.click("#save-btn");
+  await expect.poll(async () => (await writtenFiles(page))["picked.pdf"]?.length).toBe(1);
+
+  // Saved changes don't trigger the close prompt.
+  await page.click("#close-btn");
+  await expect(page.locator("#close-dialog")).toBeHidden();
+  await expectClosed(page);
+
+  const written = await writtenFiles(page);
+  expect(await pdfTexts(written["picked.pdf"][0])).toEqual(["Hello PDF", "first"]);
+});
+
+test("after Save as, Save writes to the new file", async ({ page }) => {
+  await mockFilePickers(page);
+  await page.click("#open-btn");
+  await placeTextField(page, "one");
+  await page.click("#save-as-btn");
+  await expect(page.locator("#info")).toHaveText("copy.pdf - 1 page(s)");
+
+  await page.locator(".text-field").dblclick();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" two");
+  await page.click("#save-btn");
+  await expect.poll(async () => (await writtenFiles(page))["copy.pdf"]?.length).toBe(2);
+
+  const written = await writtenFiles(page);
+  expect(written["picked.pdf"]).toBeUndefined();
+  expect(await pdfTexts(written["copy.pdf"][1])).toEqual(["Hello PDF", "one two"]);
+});
+
+test("no save prompt after the changes were saved", async ({ page }) => {
+  await placeTextField(page, "saved");
+  await savePdf(page);
+  await page.click("#close-btn");
+  await expect(page.locator("#close-dialog")).toBeHidden();
+  await expectClosed(page);
 });
 
 test("places a multiline text field with a transparent background", async ({ page }) => {
@@ -225,7 +391,7 @@ test("Save as writes text fields into the PDF", async ({ page }) => {
   await page.uncheck("#fill-transparent");
   await page.fill("#fill-color", "#ffff00");
 
-  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#save-btn")]);
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#save-as-btn")]);
   expect(download.suggestedFilename()).toBe("test-edited.pdf");
 
   const doc = await getDocument({
@@ -253,7 +419,7 @@ test("Save as writes text fields into the PDF", async ({ page }) => {
 });
 
 async function savePdf(page) {
-  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#save-btn")]);
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#save-as-btn")]);
   return readFile(await download.path());
 }
 
