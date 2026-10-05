@@ -126,3 +126,42 @@ test("Save as writes text fields into the PDF", async ({ page }) => {
     .filter(Boolean);
   expect(fillColors).toEqual(expect.arrayContaining(["255,255,0", "255,0,0"]));
 });
+
+async function savePdf(page) {
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#save-btn")]);
+  return readFile(await download.path());
+}
+
+async function pdfTexts(buffer) {
+  const doc = await getDocument({
+    data: new Uint8Array(buffer),
+    standardFontDataUrl: fileURLToPath(new URL("../node_modules/pdfjs-dist/standard_fonts/", import.meta.url)),
+  }).promise;
+  const { items } = await (await doc.getPage(1)).getTextContent();
+  return items.map((i) => i.str).filter(Boolean);
+}
+
+test("reopening a saved PDF restores its text fields for editing via double-click", async ({ page }) => {
+  await placeTextField(page, "hello");
+  await page.fill("#text-color", "#ff0000");
+  const box = page.locator(".text-box");
+  const before = await box.boundingBox();
+
+  await page.setInputFiles("#file", { name: "saved.pdf", mimeType: "application/pdf", buffer: await savePdf(page) });
+  await expect(page.locator("#info")).toHaveText("saved.pdf - 1 page(s)");
+
+  const field = page.locator(".text-field");
+  await expect(field).toHaveValue("hello");
+  await expect(field).toHaveJSProperty("readOnly", true);
+  await expect(field).toHaveCSS("color", "rgb(255, 0, 0)");
+  const after = await box.boundingBox();
+  for (const key of ["x", "y", "width", "height"]) expect(after[key]).toBeCloseTo(before[key], 0);
+
+  await field.dblclick();
+  await expect(field).toHaveJSProperty("readOnly", false);
+  await page.keyboard.press("End");
+  await page.keyboard.type(" world");
+
+  // The previously drawn text is replaced, not duplicated.
+  expect(await pdfTexts(await savePdf(page))).toEqual(["Hello PDF", "hello world"]);
+});

@@ -16,3 +16,4 @@ canvas { display: block; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0
 .resize-handle { display: none; position: absolute; right: -5px; bottom: -5px; width: 10px; height: 10px; background: #36c; cursor: nwse-resize; }
 .text-box.selected .resize-handle { display: block; }
 button.active { background: #36c; color: #fff; }
+.text-field[readonly] { cursor: move; outline: none; }

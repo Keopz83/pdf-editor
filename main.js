@@ -1,5 +1,5 @@
 import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
-import { PDFDocument, StandardFonts, rgb } from "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm";
+import { PDFArray, PDFDocument, PDFHexString, PDFName, StandardFonts, rgb } from "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
@@ -14,6 +14,18 @@ const fillColorEl = document.getElementById("fill-color");
 const fillTransparentEl = document.getElementById("fill-transparent");
 const saveBtn = document.getElementById("save-btn");
 const deleteBtn = document.getElementById("delete-btn");
+
+// Must match the .text-box / .text-field CSS so the saved output lines up with the screen.
+const BOX_INSET = 5;
+const TEXT_PAD_X = 4;
+const TEXT_PAD_Y = 2;
+const FONT_SIZE = 14;
+const LINE_HEIGHT = 1.2;
+
+// Page dictionary entries that let a saved PDF's text fields be restored for editing.
+const FIELDS_KEY = PDFName.of("PdfEditorFields");
+const STREAMS_KEY = PDFName.of("PdfEditorStreams");
+const CONTENTS_KEY = PDFName.of("Contents");
 
 let currentFile = null;
 
@@ -34,7 +46,9 @@ const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
 function select(box) {
   for (const el of pagesEl.querySelectorAll(".text-box.selected")) {
-    if (el !== box) el.classList.remove("selected");
+    if (el === box) continue;
+    el.classList.remove("selected");
+    el.querySelector(".text-field").readOnly = true;
   }
   box?.classList.add("selected");
 
@@ -91,22 +105,23 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-pagesEl.addEventListener("click", (e) => {
-  const pageEl = e.target.closest(".page");
-  if (!pagesEl.classList.contains("placing") || !pageEl || e.target.closest(".text-box")) return;
-
-  const rect = pageEl.getBoundingClientRect();
+function createBox(pageEl, { left, top, width, height, text = "", size = FONT_SIZE, color = "#000000", fill = "" }) {
+  const pageW = pageEl.clientWidth;
+  const pageH = pageEl.clientHeight;
   const box = document.createElement("div");
   box.className = "text-box";
-  box.style.left = pct(e.clientX - rect.left, rect.width);
-  box.style.top = pct(e.clientY - rect.top, rect.height);
-  box.style.width = pct(Math.min(160, rect.width), rect.width);
-  box.style.height = pct(Math.min(32, rect.height), rect.height);
-  box.dataset.color = "#000000";
-  box.dataset.fill = "";
+  box.style.left = pct(left, pageW);
+  box.style.top = pct(top, pageH);
+  box.style.width = pct(width, pageW);
+  box.style.height = pct(height, pageH);
+  box.dataset.color = color;
+  box.dataset.fill = fill;
+  box.dataset.size = size;
 
   const input = document.createElement("textarea");
   input.className = "text-field";
+  input.value = text;
+  input.style.fontSize = `${size}px`;
 
   const handle = document.createElement("div");
   handle.className = "resize-handle";
@@ -114,15 +129,38 @@ pagesEl.addEventListener("click", (e) => {
   box.append(input, handle);
   pageEl.appendChild(box);
   applyStyle(box);
+  return box;
+}
+
+pagesEl.addEventListener("click", (e) => {
+  const pageEl = e.target.closest(".page");
+  if (!pagesEl.classList.contains("placing") || !pageEl || e.target.closest(".text-box")) return;
+
+  const rect = pageEl.getBoundingClientRect();
+  const box = createBox(pageEl, {
+    left: e.clientX - rect.left,
+    top: e.clientY - rect.top,
+    width: Math.min(160, rect.width),
+    height: Math.min(32, rect.height),
+  });
   select(box);
-  input.focus();
+  box.querySelector(".text-field").focus();
   setPlacing(false);
 });
 
-// Drag the box border to move it, or the corner handle to resize it.
+// Fields are read-only once deselected; double-click to edit their text again.
+pagesEl.addEventListener("dblclick", (e) => {
+  const field = e.target.closest(".text-box")?.querySelector(".text-field");
+  if (!field) return;
+  select(field.parentElement);
+  field.readOnly = false;
+  field.focus();
+});
+
+// Drag the box (or a read-only field) to move it, or the corner handle to resize it.
 pagesEl.addEventListener("pointerdown", (e) => {
   const box = e.target.closest(".text-box");
-  if (!box || e.target.classList.contains("text-field")) return;
+  if (!box || (e.target.classList.contains("text-field") && !e.target.readOnly)) return;
   e.preventDefault();
   // preventDefault keeps focus in the textarea, which would swallow the Delete key.
   document.activeElement?.blur();
@@ -160,7 +198,7 @@ fileInput.addEventListener("change", async (e) => {
   infoEl.textContent = "Loading...";
 
   try {
-    const bytes = await file.arrayBuffer();
+    const { bytes, fields } = await extractFields(await file.arrayBuffer());
     // pdf.js detaches the buffer it receives, so keep the original for saving.
     const pdf = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
     currentFile = { name: file.name, bytes };
@@ -177,6 +215,21 @@ fileInput.addEventListener("change", async (e) => {
       pageEl.appendChild(canvas);
       pagesEl.appendChild(pageEl);
       await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+
+      const s = (page.view[2] - page.view[0]) / pageEl.clientWidth;
+      for (const f of fields[i - 1] ?? []) {
+        const box = createBox(pageEl, {
+          left: f.left / s - BOX_INSET,
+          top: f.top / s - BOX_INSET,
+          width: f.width / s + 2 * BOX_INSET,
+          height: f.height / s + 2 * BOX_INSET,
+          size: f.size / s,
+          text: f.text,
+          color: f.color,
+          fill: f.fill,
+        });
+        box.querySelector(".text-field").readOnly = true;
+      }
     }
     saveBtn.disabled = false;
   } catch (err) {
@@ -184,12 +237,45 @@ fileInput.addEventListener("change", async (e) => {
   }
 });
 
-// Must match the .text-box / .text-field CSS so the saved output lines up with the screen.
-const BOX_INSET = 5;
-const TEXT_PAD_X = 4;
-const TEXT_PAD_Y = 2;
-const FONT_SIZE = 14;
-const LINE_HEIGHT = 1.2;
+function contentRefs(page) {
+  const contents = page.node.get(CONTENTS_KEY);
+  if (contents instanceof PDFArray) return contents.asArray();
+  return contents ? [contents] : [];
+}
+
+// Removes the drawn text fields of a PDF saved by this app and returns their data per page.
+async function extractFields(bytes) {
+  let doc;
+  try {
+    doc = await PDFDocument.load(bytes);
+  } catch {
+    return { bytes, fields: [] };
+  }
+
+  const removed = new Set();
+  const fields = doc.getPages().map((page) => {
+    const json = page.node.lookupMaybe(FIELDS_KEY, PDFHexString);
+    const streams = page.node.lookupMaybe(STREAMS_KEY, PDFArray)?.asArray() ?? [];
+    const contents = page.node.lookup(CONTENTS_KEY);
+    // Without a separable content array (e.g. rewritten by another tool) the fields stay flattened.
+    if (!json || !(contents instanceof PDFArray)) return [];
+
+    for (let i = contents.size() - 1; i >= 0; i--) {
+      if (streams.includes(contents.get(i))) contents.remove(i);
+    }
+    streams.forEach((ref) => removed.add(ref));
+    page.node.delete(FIELDS_KEY);
+    page.node.delete(STREAMS_KEY);
+    return JSON.parse(json.decodeText());
+  });
+  if (!removed.size && !fields.some((f) => f.length)) return { bytes, fields };
+
+  const stillUsed = new Set(doc.getPages().flatMap(contentRefs));
+  for (const ref of removed) {
+    if (!stillUsed.has(ref)) doc.context.delete(ref);
+  }
+  return { bytes: await doc.save(), fields };
+}
 
 const hexToRgb = (hex) => rgb(...[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255));
 
@@ -203,34 +289,41 @@ async function buildPdf() {
     const page = pdfPages[i];
     const crop = page.getCropBox();
     const s = crop.width / pageEl.clientWidth;
+    const before = new Set(contentRefs(page));
+    const fields = [];
 
     for (const box of pageEl.querySelectorAll(".text-box")) {
       const x = crop.x + (box.offsetLeft + BOX_INSET) * s;
       const top = crop.y + crop.height - (box.offsetTop + BOX_INSET) * s;
       const width = (box.offsetWidth - 2 * BOX_INSET) * s;
       const height = (box.offsetHeight - 2 * BOX_INSET) * s;
+      const size = Number(box.dataset.size) * s;
+      const value = box.querySelector(".text-field").value;
+      const { color, fill } = box.dataset;
+      fields.push({ left: x - crop.x, top: crop.y + crop.height - top, width, height, size, text: value, color, fill });
 
-      if (box.dataset.fill) {
-        page.drawRectangle({ x, y: top - height, width, height, color: hexToRgb(box.dataset.fill) });
+      if (fill) {
+        page.drawRectangle({ x, y: top - height, width, height, color: hexToRgb(fill) });
       }
 
       // Helvetica only covers WinAnsi; replace anything else so drawText doesn't throw.
-      const text = [...box.querySelector(".text-field").value]
-        .map((c) => (c === "\n" || charset.has(c.codePointAt(0)) ? c : "?"))
-        .join("");
+      const text = [...value].map((c) => (c === "\n" || charset.has(c.codePointAt(0)) ? c : "?")).join("");
       if (!text.trim()) continue;
 
-      const size = FONT_SIZE * s;
       page.drawText(text, {
         x: x + TEXT_PAD_X * s,
         y: top - TEXT_PAD_Y * s - size,
         size,
         font,
-        color: hexToRgb(box.dataset.color),
+        color: hexToRgb(color),
         lineHeight: size * LINE_HEIGHT,
         maxWidth: width - 2 * TEXT_PAD_X * s,
       });
     }
+
+    if (!fields.length) return;
+    page.node.set(FIELDS_KEY, PDFHexString.fromText(JSON.stringify(fields)));
+    page.node.set(STREAMS_KEY, doc.context.obj(contentRefs(page).filter((ref) => !before.has(ref))));
   });
 
   return doc.save();
