@@ -4,61 +4,63 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PDF Editor</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header>
-    <strong>PDF Viewer</strong>
-    <span id="info"></span>
+  <header class="navbar navbar-dark bg-dark px-3">
+    <span class="navbar-brand mb-0 h1">PDF Editor</span>
+    <span id="info" class="text-light small"></span>
   </header>
-  <aside id="toolbar">
-    <button id="new-btn" type="button">New</button>
-    <button id="open-btn" type="button">Open</button>
+  <aside id="toolbar" data-bs-theme="dark">
+    <button id="new-btn" class="btn btn-sm btn-light" type="button">New</button>
+    <button id="open-btn" class="btn btn-sm btn-light" type="button">Open</button>
     <input type="file" id="file" accept="application/pdf" hidden />
-    <button id="save-btn" type="button" disabled>Save</button>
-    <button id="save-as-btn" type="button" disabled>Save as</button>
-    <button id="close-btn" type="button" disabled>Close</button>
-    <button id="text-field-btn" type="button">Text Field</button>
-    <button id="signature-btn" type="button">Signature</button>
+    <button id="save-btn" class="btn btn-sm btn-light" type="button" disabled>Save</button>
+    <button id="save-as-btn" class="btn btn-sm btn-light" type="button" disabled>Save as</button>
+    <button id="close-btn" class="btn btn-sm btn-light" type="button" disabled>Close</button>
+    <hr class="my-1" />
+    <button id="text-field-btn" class="btn btn-sm btn-outline-light" type="button">Add text</button>
+    <button id="signature-btn" class="btn btn-sm btn-outline-light" type="button">Signature</button>
     <div id="signature-tray" hidden>
-      <img id="signature-preview" alt="Your signature" title="Drag onto a page" draggable="false" />
-      <small>Drag onto a page</small>
+      <img id="signature-preview" class="rounded" alt="Your signature" title="Drag onto a page" draggable="false" />
+      <small class="text-white-50">Drag onto a page</small>
     </div>
-    <fieldset id="text-options" hidden>
-      <legend>Text field</legend>
-      <label>Text color <input type="color" id="text-color" value="#000000" /></label>
+    <fieldset id="text-options" class="border rounded p-2" hidden>
+      <legend class="float-none w-auto fs-6 px-1 mb-0">Text field</legend>
+      <label>Text color <input type="color" id="text-color" class="form-control form-control-sm form-control-color" value="#000000" /></label>
       <div class="swatches" data-for="text-color"></div>
-      <label>Fill <input type="color" id="fill-color" value="#ffffff" disabled /></label>
+      <label>Fill <input type="color" id="fill-color" class="form-control form-control-sm form-control-color" value="#ffffff" disabled /></label>
       <div class="swatches" data-for="fill-color"></div>
-      <label><input type="checkbox" id="fill-transparent" checked /> Transparent</label>
-      <label>Font size <input type="number" id="font-size" min="4" max="96" step="1" value="14" /></label>
+      <div class="form-check"><input type="checkbox" id="fill-transparent" class="form-check-input" checked /><label class="form-check-label" for="fill-transparent">Transparent</label></div>
+      <label>Font size <input type="number" id="font-size" class="form-control form-control-sm" min="4" max="96" step="1" value="14" /></label>
       <label>Font
-        <select id="font-family">
+        <select id="font-family" class="form-select form-select-sm">
           <option value="Helvetica">Helvetica</option>
           <option value="Times">Times</option>
           <option value="Courier">Courier</option>
         </select>
       </label>
-      <label><input type="checkbox" id="font-bold" /> Bold</label>
-      <label><input type="checkbox" id="font-italic" /> Italic</label>
+      <div class="form-check"><input type="checkbox" id="font-bold" class="form-check-input" /><label class="form-check-label" for="font-bold">Bold</label></div>
+      <div class="form-check"><input type="checkbox" id="font-italic" class="form-check-input" /><label class="form-check-label" for="font-italic">Italic</label></div>
     </fieldset>
-    <fieldset id="signature-options" hidden>
-      <legend>Signature</legend>
-      <label>Color <input type="color" id="signature-color" value="#000000" /></label>
+    <fieldset id="signature-options" class="border rounded p-2" hidden>
+      <legend class="float-none w-auto fs-6 px-1 mb-0">Signature</legend>
+      <label>Color <input type="color" id="signature-color" class="form-control form-control-sm form-control-color" value="#000000" /></label>
       <div class="swatches" data-for="signature-color"></div>
     </fieldset>
-    <button id="delete-btn" type="button" hidden>Delete</button>
+    <button id="delete-btn" class="btn btn-sm btn-danger" type="button" hidden>Delete</button>
   </aside>
   <main id="pages"></main>
 
   <dialog id="signature-dialog">
-    <p>Draw your signature</p>
-    <canvas id="signature-pad" width="1000" height="400"></canvas>
-    <label class="smoothing">Smoothing <input type="range" id="signature-smoothing" min="0" max="8" value="2" /></label>
+    <p class="fw-semibold">Draw your signature</p>
+    <canvas id="signature-pad" class="rounded" width="1000" height="400"></canvas>
+    <label class="smoothing form-label">Smoothing <input type="range" id="signature-smoothing" class="form-range" min="0" max="8" value="2" /></label>
     <div class="dialog-buttons">
-      <button id="signature-clear" type="button">Clear</button>
-      <button id="signature-cancel" type="button">Cancel</button>
-      <button id="signature-done" type="button" disabled>Done</button>
+      <button id="signature-clear" class="btn btn-outline-secondary" type="button">Clear</button>
+      <button id="signature-cancel" class="btn btn-secondary" type="button">Cancel</button>
+      <button id="signature-done" class="btn btn-primary" type="button" disabled>Done</button>
     </div>
   </dialog>
 
@@ -66,10 +68,10 @@
     <form method="dialog">
       <p>Save changes to <strong id="close-name"></strong> before closing?</p>
       <div class="dialog-buttons">
-        <button id="close-discard" value="discard">Don't Save</button>
-        <button id="close-cancel" value="cancel">Cancel</button>
-        <button id="close-save-as" value="save-as">Save as</button>
-        <button id="close-save" value="save" autofocus>Save</button>
+        <button id="close-discard" class="btn btn-outline-danger" value="discard">Don't Save</button>
+        <button id="close-cancel" class="btn btn-secondary" value="cancel">Cancel</button>
+        <button id="close-save-as" class="btn btn-outline-primary" value="save-as">Save as</button>
+        <button id="close-save" class="btn btn-primary" value="save" autofocus>Save</button>
       </div>
     </form>
   </dialog>
