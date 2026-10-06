@@ -4,6 +4,14 @@ import { TextBox } from "./TextBox.js";
 
 const pages = new WeakMap();
 
+// A page outline with `sign` drawn inside it.
+const pageIcon = (sign) =>
+  '<svg class="page-icon" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">' +
+  `<path d="M3 1.5h6.5l3.5 3.5v9.5h-10z M9.5 1.5v3.5h3.5" fill="#fff"/><path d="${sign}" stroke-linecap="round"/></svg>`;
+
+const PLUS = "M8 7v5M5.5 9.5h5";
+const MINUS = "M5.5 9.5h5";
+
 // A rendered PDF page holding the boxes placed on it.
 export class Page {
   static of(el) {
@@ -17,21 +25,21 @@ export class Page {
     const actions = document.createElement("div");
     actions.className = "page-actions";
     actions.append(
-      Page.button("add-page btn-light", "Insert blank page after", "+"),
-      Page.button("remove-page btn-danger", "Remove page", "×"),
+      Page.button("add-page", "Insert blank page after", PLUS),
+      Page.button("remove-page", "Remove page", MINUS),
     );
     this.el.append(this.canvas, actions);
     container.insertBefore(this.el, before);
     pages.set(this.el, this);
   }
 
-  static button(className, label, text) {
+  static button(className, label, sign) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = `btn btn-sm ${className}`;
+    button.className = className;
     button.title = label;
     button.setAttribute("aria-label", label);
-    button.textContent = text;
+    button.innerHTML = pageIcon(sign);
     return button;
   }
 
