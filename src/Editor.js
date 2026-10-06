@@ -37,6 +37,7 @@ export class Editor {
     this.deleteBtn = $("delete-btn");
     this.addPageBtn = $("add-page-btn");
     this.removePageBtn = $("remove-page-btn");
+    this.pageNumberEl = $("page-number");
     this.closeDialog = $("close-dialog");
     this.options = new OptionsPanel();
     this.signaturePad = new SignaturePad();
@@ -66,6 +67,7 @@ export class Editor {
     });
     document.addEventListener("keydown", (e) => this.onKeyDown(e));
     this.pagesEl.addEventListener("pointerdown", (e) => this.onPagePointerDown(e));
+    this.pagesEl.addEventListener("scroll", () => this.updatePageControls(), { passive: true });
     this.pagesEl.addEventListener("click", (e) => {
       // The second click of a double-click would act again, possibly on a page moved into place.
       if (e.detail > 1) return;
@@ -103,6 +105,7 @@ export class Editor {
     box?.setSelected(true);
     this.deleteBtn.hidden = !box;
     this.options.show(box);
+    this.updatePageControls();
   }
 
   deleteSelected() {
@@ -188,9 +191,11 @@ export class Editor {
     return current;
   }
 
-  updatePageButtons() {
+  updatePageControls() {
     this.addPageBtn.disabled = !this.pages.length;
     this.removePageBtn.disabled = this.pages.length < 2;
+    const current = this.pages.indexOf(this.currentPage) + 1;
+    this.pageNumberEl.textContent = current ? `${current} / ${this.pages.length}` : "";
   }
 
   queue(fn) {
@@ -211,7 +216,7 @@ export class Editor {
         if (this.selected?.page === page) this.select(null);
         this.pages.splice(index, 1);
         page.el.remove();
-        this.updatePageButtons();
+        this.updatePageControls();
         this.infoEl.textContent = `${file.name} - ${this.pages.length} page(s)`;
       });
     } catch (err) {
@@ -230,9 +235,10 @@ export class Editor {
         if (this.file !== file) return;
         const added = new Page(this.pagesEl, page.el.nextSibling);
         this.pages.splice(index, 0, added);
-        this.updatePageButtons();
         this.infoEl.textContent = `${file.name} - ${this.pages.length} page(s)`;
         await this.renderPage(file, added);
+        // After rendering, once the new page has its final size.
+        this.updatePageControls();
       });
     } catch (err) {
       if (this.file === file) this.infoEl.textContent = `Failed to add page: ${err.message}`;
@@ -329,7 +335,7 @@ export class Editor {
     } finally {
       // Also lets a partially rendered document be cleared after a failure.
       this.closeBtn.disabled = false;
-      this.updatePageButtons();
+      this.updatePageControls();
     }
   }
 
@@ -343,7 +349,7 @@ export class Editor {
     this.saveBtn.disabled = true;
     this.saveAsBtn.disabled = true;
     this.closeBtn.disabled = true;
-    this.updatePageButtons();
+    this.updatePageControls();
     this.infoEl.textContent = "";
     // Lets the same file be picked again after closing.
     this.fileInput.value = "";

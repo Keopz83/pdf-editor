@@ -1,5 +1,5 @@
 body { margin: 0; height: 100vh; display: grid; grid-template: auto minmax(0, 1fr) auto / 190px 1fr; background: linear-gradient(135deg, #1d4f9a, #1f8f6a 55%, #f4fbf7); }
-body.no-document #toolbar, body.no-document #pages { display: none; }
+body.no-document #toolbar, body.no-document #pages, body.no-document #page-number { display: none; }
 body.no-document header { background: transparent; }
 #start { grid-column: 1 / -1; display: flex; align-items: center; justify-content: center; gap: 1rem; }
 body:not(.no-document) #start { display: none; }
@@ -23,6 +23,8 @@ footer { grid-column: 1 / -1; grid-row: -2; text-align: center; background: rgba
 .page-actions .btn { line-height: 1; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
 .page:hover .page-actions, .page-actions:has(:focus-visible) { opacity: 1; }
 .page:only-child .remove-page { display: none; }
+#page-number { position: fixed; right: 1.75rem; bottom: 2.5rem; z-index: 5; padding: 0.4rem 0.75rem; font-size: 0.85rem; font-weight: 500; background: rgba(0, 0, 0, 0.6); pointer-events: none; }
+#page-number:empty { display: none; }
 canvas { display: block; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3); max-width: 100%; height: auto; }
 #pages.placing .page { cursor: crosshair; }
 .box { position: absolute; box-sizing: border-box; cursor: move; touch-action: none; }

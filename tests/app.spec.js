@@ -596,18 +596,22 @@ test("toolbar page buttons act on the selected box's page, otherwise the visible
   await expect(pages).toHaveCount(3);
   await expect(pages.nth(1).locator(".text-box")).toHaveCount(1);
   await expect(pages.nth(2).locator(".text-box")).toHaveCount(0);
+  await expect(page.locator("#page-number")).toHaveText("2 / 3");
 
   await page.click("#pages", { position: { x: 5, y: 5 } });
   await page.locator("#pages").evaluate((el) => (el.scrollTop = 0));
+  await expect(page.locator("#page-number")).toHaveText("1 / 3");
   await page.click("#remove-page-btn");
   await expect(pages).toHaveCount(2);
   await page.click("#remove-page-btn");
   await expect(pages).toHaveCount(1);
   await expect(page.locator("#remove-page-btn")).toBeDisabled();
+  await expect(page.locator("#page-number")).toHaveText("1 / 1");
   expect(await pdfTexts(await savePdf(page))).toEqual([]);
 
   await page.click("#close-btn");
   await expect(page.locator("#add-page-btn")).toBeDisabled();
+  await expect(page.locator("#page-number")).toBeHidden();
 });
 
 async function drawSignature(page) {
