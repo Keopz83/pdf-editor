@@ -1,10 +1,10 @@
-# PDF Editor
+# PROOFREAD - PDF Editor
 
 A small browser-based PDF editor. Open a PDF, place text fields on its pages, and save a new PDF with the text included.
 
 Rendering uses [PDF.js](https://mozilla.github.io/pdf.js/), and saving uses [pdf-lib](https://pdf-lib.js.org/). Both load from a CDN.
 
-![PDF Editor screenshot](images/screenshot1.png)
+![PROOFREAD - PDF Editor screenshot](images/screenshot1.png)
 
 ## Features
 
