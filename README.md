@@ -32,3 +32,7 @@ End-to-end tests use Playwright:
 ```sh
 npm test
 ```
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE). This project is free for personal, educational, research, and other noncommercial use. Commercial use requires a separate license from the author.
