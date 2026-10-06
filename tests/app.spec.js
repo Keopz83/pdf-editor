@@ -581,6 +581,35 @@ test("inserts a blank page of the same size after a page", async ({ page }) => {
   await expect(pages.nth(1).locator(".text-field")).toHaveValue("inserted");
 });
 
+test("toolbar page buttons act on the selected box's page, otherwise the visible one", async ({ page }) => {
+  const contents = ["One", "Two"].map((t) => `BT /F1 24 Tf 50 150 Td (${t}) Tj ET`);
+  await page.setInputFiles("#file", { name: "pages.pdf", mimeType: "application/pdf", buffer: makePdf(...contents) });
+  await expect(page.locator("#info")).toHaveText("pages.pdf - 2 page(s)");
+
+  const pages = page.locator(".page");
+  await page.click("#text-field-btn");
+  await pages.nth(1).click({ position: { x: 60, y: 60 } });
+  await page.keyboard.type("on two");
+  await page.keyboard.press("Enter");
+  await page.locator(".text-box").click();
+  await page.click("#add-page-btn");
+  await expect(pages).toHaveCount(3);
+  await expect(pages.nth(1).locator(".text-box")).toHaveCount(1);
+  await expect(pages.nth(2).locator(".text-box")).toHaveCount(0);
+
+  await page.click("#pages", { position: { x: 5, y: 5 } });
+  await page.locator("#pages").evaluate((el) => (el.scrollTop = 0));
+  await page.click("#remove-page-btn");
+  await expect(pages).toHaveCount(2);
+  await page.click("#remove-page-btn");
+  await expect(pages).toHaveCount(1);
+  await expect(page.locator("#remove-page-btn")).toBeDisabled();
+  expect(await pdfTexts(await savePdf(page))).toEqual([]);
+
+  await page.click("#close-btn");
+  await expect(page.locator("#add-page-btn")).toBeDisabled();
+});
+
 async function drawSignature(page) {
   await page.click("#signature-btn");
   await expect(page.locator("#signature-dialog")).toBeVisible();

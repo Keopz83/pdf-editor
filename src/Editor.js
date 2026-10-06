@@ -35,6 +35,8 @@ export class Editor {
     this.saveAsBtn = $("save-as-btn");
     this.closeBtn = $("close-btn");
     this.deleteBtn = $("delete-btn");
+    this.addPageBtn = $("add-page-btn");
+    this.removePageBtn = $("remove-page-btn");
     this.closeDialog = $("close-dialog");
     this.options = new OptionsPanel();
     this.signaturePad = new SignaturePad();
@@ -56,6 +58,8 @@ export class Editor {
     });
     this.textFieldBtn.addEventListener("click", () => this.setPlacing(!this.placing));
     this.deleteBtn.addEventListener("click", () => this.deleteSelected());
+    this.addPageBtn.addEventListener("click", () => this.addPage(this.currentPage));
+    this.removePageBtn.addEventListener("click", () => this.removePage(this.currentPage));
 
     document.addEventListener("pointerdown", (e) => {
       if (!e.target.closest("#toolbar, dialog")) this.select(Box.of(e.target));
@@ -170,6 +174,25 @@ export class Editor {
     }
   }
 
+  // The selected box's page, otherwise the page taking up most of the view.
+  get currentPage() {
+    if (this.selected) return this.selected.page;
+    const view = this.pagesEl.getBoundingClientRect();
+    let current = null;
+    let mostVisible = -Infinity;
+    for (const page of this.pages) {
+      const rect = page.el.getBoundingClientRect();
+      const visible = Math.min(rect.bottom, view.bottom) - Math.max(rect.top, view.top);
+      if (visible > mostVisible) [current, mostVisible] = [page, visible];
+    }
+    return current;
+  }
+
+  updatePageButtons() {
+    this.addPageBtn.disabled = !this.pages.length;
+    this.removePageBtn.disabled = this.pages.length < 2;
+  }
+
   queue(fn) {
     const run = this.edits.then(fn);
     this.edits = run.catch(() => {});
@@ -188,6 +211,7 @@ export class Editor {
         if (this.selected?.page === page) this.select(null);
         this.pages.splice(index, 1);
         page.el.remove();
+        this.updatePageButtons();
         this.infoEl.textContent = `${file.name} - ${this.pages.length} page(s)`;
       });
     } catch (err) {
@@ -206,6 +230,7 @@ export class Editor {
         if (this.file !== file) return;
         const added = new Page(this.pagesEl, page.el.nextSibling);
         this.pages.splice(index, 0, added);
+        this.updatePageButtons();
         this.infoEl.textContent = `${file.name} - ${this.pages.length} page(s)`;
         await this.renderPage(file, added);
       });
@@ -304,6 +329,7 @@ export class Editor {
     } finally {
       // Also lets a partially rendered document be cleared after a failure.
       this.closeBtn.disabled = false;
+      this.updatePageButtons();
     }
   }
 
@@ -317,6 +343,7 @@ export class Editor {
     this.saveBtn.disabled = true;
     this.saveAsBtn.disabled = true;
     this.closeBtn.disabled = true;
+    this.updatePageButtons();
     this.infoEl.textContent = "";
     // Lets the same file be picked again after closing.
     this.fileInput.value = "";
