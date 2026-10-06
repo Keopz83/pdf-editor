@@ -12,6 +12,7 @@ Rendering uses [PDF.js](https://mozilla.github.io/pdf.js/), and saving uses [pdf
 - Add text fields by clicking or dragging. Move, resize, edit, and delete them.
 - Double-click the document's own text, even in PDFs without form fields, to edit it in place. Neighboring text on the same line with the same font, size, and color is edited as one piece, even if the PDF draws it letter by letter or word by word. Press Enter to apply or Escape to cancel. The text is changed in the PDF itself (via [PDFium](https://pdfium.googlesource.com/pdfium/) WebAssembly, loaded on the first edit). If the embedded font lacks a typed character, the text switches to the closest standard font.
 - Text options: color, fill (or transparent), font size, font family (Helvetica, Times, Courier), bold, and italic
+- Insert a blank page after any page with the + button, or remove a page with the × button. Both show when hovering over a page. Any text fields and signatures on a removed page are removed with it. The last page can't be removed.
 - Draw a signature, then drag it onto a page. It has a transparent background, and you can move, resize, recolor, and delete it.
 - Save changes to the same file, or Save as a new PDF. Text fields and signatures stay editable when you open the saved file in this editor again.
 - Close the document. If there are unsaved changes, the editor asks whether to save them first (also when you choose New or Open). Save overwrites the opened file in browsers that support the File System Access API (otherwise it works like Save as).

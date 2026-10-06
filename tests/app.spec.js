@@ -6,13 +6,17 @@ import { getDocument, OPS } from "pdfjs-dist/legacy/build/pdf.mjs";
 const PDF_WIDTH = 400;
 const PDF_HEIGHT = 300;
 
-function makePdf(content = "BT /F1 24 Tf 50 150 Td (Hello PDF) Tj ET") {
+// One page per content stream.
+function makePdf(...contents) {
+  if (!contents.length) contents = ["BT /F1 24 Tf 50 150 Td (Hello PDF) Tj ET"];
   const objects = [
     "<</Type/Catalog/Pages 2 0 R>>",
-    "<</Type/Pages/Kids[3 0 R]/Count 1>>",
-    `<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${PDF_WIDTH} ${PDF_HEIGHT}]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>`,
-    `<</Length ${content.length}>>\nstream\n${content}\nendstream`,
+    `<</Type/Pages/Kids[${contents.map((_, i) => `${4 + 2 * i} 0 R`).join(" ")}]/Count ${contents.length}>>`,
     "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
+    ...contents.flatMap((content, i) => [
+      `<</Type/Page/Parent 2 0 R/MediaBox[0 0 ${PDF_WIDTH} ${PDF_HEIGHT}]/Contents ${5 + 2 * i} 0 R/Resources<</Font<</F1 3 0 R>>>>>>`,
+      `<</Length ${content.length}>>\nstream\n${content}\nendstream`,
+    ]),
   ];
   let pdf = "%PDF-1.4\n";
   const offsets = objects.map((obj, i) => {
@@ -425,12 +429,12 @@ async function savePdf(page) {
   return readFile(await download.path());
 }
 
-async function pdfTexts(buffer) {
+async function pdfTexts(buffer, pageNumber = 1) {
   const doc = await getDocument({
     data: new Uint8Array(buffer),
     standardFontDataUrl: fileURLToPath(new URL("../node_modules/pdfjs-dist/standard_fonts/", import.meta.url)),
   }).promise;
-  const { items } = await (await doc.getPage(1)).getTextContent();
+  const { items } = await (await doc.getPage(pageNumber)).getTextContent();
   return items.map((i) => i.str).filter(Boolean);
 }
 
@@ -511,6 +515,70 @@ test("document text drawn as separate objects is edited as one run of the same s
   await expect(page.locator(".text-object-input")).toHaveCount(0);
   const texts = (await pdfTexts(await savePdf(page))).map((t) => t.trim()).filter(Boolean);
   expect(texts).toEqual(["Goodbye PDF", "small", "Far"]);
+});
+
+test("removes pages with their fields, except the last one, and keeps editing the right page", async ({ page }) => {
+  const contents = ["One", "Two", "Hello PDF"].map((t) => `BT /F1 24 Tf 50 150 Td (${t}) Tj ET`);
+  await page.setInputFiles("#file", { name: "pages.pdf", mimeType: "application/pdf", buffer: makePdf(...contents) });
+  await expect(page.locator("#info")).toHaveText("pages.pdf - 3 page(s)");
+
+  const pages = page.locator(".page");
+  await page.click("#text-field-btn");
+  await pages.nth(1).click({ position: { x: 60, y: 60 } });
+  await page.keyboard.type("on two");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".text-box")).toHaveCount(1);
+
+  await pages.nth(1).locator(".remove-page").click();
+  await expect(pages).toHaveCount(2);
+  await expect(page.locator(".text-box")).toHaveCount(0);
+  await expect(page.locator("#info")).toHaveText("pages.pdf - 2 page(s)");
+
+  await pages.first().locator(".remove-page").click();
+  await expect(pages).toHaveCount(1);
+  await expect(page.locator(".remove-page")).toBeHidden();
+
+  // Removing pages is an unsaved change.
+  await page.click("#close-btn");
+  await expect(page.locator("#close-dialog")).toBeVisible();
+  await page.click("#close-cancel");
+
+  // The remaining page is now the first one in the document's bytes too.
+  await editDocumentText(page, "Goodbye PDF");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".text-object-input")).toHaveCount(0);
+
+  const saved = await savePdf(page);
+  expect(await pdfTexts(saved)).toEqual(["Goodbye PDF"]);
+  await page.setInputFiles("#file", { name: "saved.pdf", mimeType: "application/pdf", buffer: saved });
+  await expect(page.locator("#info")).toHaveText("saved.pdf - 1 page(s)");
+});
+
+test("inserts a blank page of the same size after a page", async ({ page }) => {
+  const contents = ["One", "Two"].map((t) => `BT /F1 24 Tf 50 150 Td (${t}) Tj ET`);
+  await page.setInputFiles("#file", { name: "pages.pdf", mimeType: "application/pdf", buffer: makePdf(...contents) });
+  await expect(page.locator("#info")).toHaveText("pages.pdf - 2 page(s)");
+
+  const pages = page.locator(".page");
+  await pages.first().locator(".add-page").click();
+  await expect(pages).toHaveCount(3);
+  await expect(page.locator("#info")).toHaveText("pages.pdf - 3 page(s)");
+  const ratio = (el) => el.height / el.width;
+  await expect.poll(() => pages.nth(1).locator("canvas").evaluate(ratio)).toBeCloseTo(PDF_HEIGHT / PDF_WIDTH, 2);
+
+  await page.click("#text-field-btn");
+  await pages.nth(1).click({ position: { x: 60, y: 60 } });
+  await page.keyboard.type("inserted");
+  await page.keyboard.press("Enter");
+
+  const saved = await savePdf(page);
+  expect(await pdfTexts(saved, 1)).toEqual(["One"]);
+  expect(await pdfTexts(saved, 2)).toEqual(["inserted"]);
+  expect(await pdfTexts(saved, 3)).toEqual(["Two"]);
+
+  await page.setInputFiles("#file", { name: "saved.pdf", mimeType: "application/pdf", buffer: saved });
+  await expect(page.locator("#info")).toHaveText("saved.pdf - 3 page(s)");
+  await expect(pages.nth(1).locator(".text-field")).toHaveValue("inserted");
 });
 
 async function drawSignature(page) {

@@ -99,6 +99,22 @@ export class PdfFile {
     return doc.save();
   }
 
+  async removePage(index) {
+    const doc = await PDFDocument.load(this.bytes);
+    doc.removePage(index);
+    this.bytes = await doc.save();
+    this.revision++;
+  }
+
+  // Sized like the page before it.
+  async insertBlankPage(index) {
+    const doc = await PDFDocument.load(this.bytes);
+    const { width, height } = doc.getPage(index - 1).getCropBox();
+    doc.insertPage(index, [width, height]);
+    this.bytes = await doc.save();
+    this.revision++;
+  }
+
   // Draws the boxes of each Page into the PDF and stores them so they can be edited again.
   async build(pages) {
     const doc = await PDFDocument.load(this.bytes);

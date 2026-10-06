@@ -23,8 +23,8 @@ export class Editor {
   selected = null;
   // State of the boxes when the document was last opened or saved, to detect unsaved changes.
   savedSnapshot = "";
-  // Page re-renders after text edits, in order.
-  rendering = Promise.resolve();
+  // Changes to the document bytes and the re-renders after them, in order.
+  edits = Promise.resolve();
 
   constructor() {
     this.pagesEl = $("pages");
@@ -62,6 +62,12 @@ export class Editor {
     });
     document.addEventListener("keydown", (e) => this.onKeyDown(e));
     this.pagesEl.addEventListener("pointerdown", (e) => this.onPagePointerDown(e));
+    this.pagesEl.addEventListener("click", (e) => {
+      // The second click of a double-click would act again, possibly on a page moved into place.
+      if (e.detail > 1) return;
+      if (e.target.closest(".remove-page")) this.removePage(Page.of(e.target));
+      else if (e.target.closest(".add-page")) this.addPage(Page.of(e.target));
+    });
     this.pagesEl.addEventListener("dblclick", (e) => {
       const box = Box.of(e.target);
       const page = Page.of(e.target);
@@ -103,6 +109,7 @@ export class Editor {
 
   // Moves a box, or places a new text field in placing mode.
   async onPagePointerDown(e) {
+    if (e.target.closest(".page-actions")) return;
     const box = Box.of(e.target);
     const page = Page.of(e.target);
     if (box) {
@@ -136,26 +143,74 @@ export class Editor {
   // Edits the document's own text under the pointer, e.g. of PDFs without form fields.
   async editPageText(page, e) {
     const { file } = this;
-    const index = this.pages.indexOf(page);
     const [x, y] = page.toPdfPoint(e);
     let input = null;
     try {
-      const found = await findText(file.bytes, index, x, y);
+      const found = await this.queue(() => {
+        const index = this.pages.indexOf(page);
+        return index < 0 ? null : findText(file.bytes, index, x, y);
+      });
       if (!found || this.file !== file) return;
       input = new TextObjectInput(page, found);
       const text = await input.result;
       if (text === null || text === found.text || this.file !== file) return;
 
-      file.bytes = await replaceText(file.bytes, index, found.indices, text);
-      file.revision++;
-      const render = this.rendering.then(() => this.renderPage(file, page));
-      this.rendering = render.catch(() => {});
-      await render;
+      await this.queue(async () => {
+        const index = this.pages.indexOf(page);
+        if (this.file !== file || index < 0) return;
+        file.bytes = await replaceText(file.bytes, index, found.indices, text);
+        file.revision++;
+        await this.renderPage(file, page);
+      });
     } catch (err) {
       if (this.file === file) this.infoEl.textContent = `Failed to edit text: ${err.message}`;
     } finally {
       // Removed only after re-rendering, so the old text doesn't flash up.
       input?.remove();
+    }
+  }
+
+  queue(fn) {
+    const run = this.edits.then(fn);
+    this.edits = run.catch(() => {});
+    return run;
+  }
+
+  // Removes the page from the document bytes first, so page indices stay in sync with them.
+  async removePage(page) {
+    const { file } = this;
+    try {
+      await this.queue(async () => {
+        const index = this.pages.indexOf(page);
+        if (this.file !== file || index < 0 || this.pages.length < 2) return;
+        await file.removePage(index);
+        if (this.file !== file) return;
+        if (this.selected?.page === page) this.select(null);
+        this.pages.splice(index, 1);
+        page.el.remove();
+        this.infoEl.textContent = `${file.name} - ${this.pages.length} page(s)`;
+      });
+    } catch (err) {
+      if (this.file === file) this.infoEl.textContent = `Failed to remove page: ${err.message}`;
+    }
+  }
+
+  // Inserts a blank page of the same size after `page`.
+  async addPage(page) {
+    const { file } = this;
+    try {
+      await this.queue(async () => {
+        const index = this.pages.indexOf(page) + 1;
+        if (this.file !== file || !index) return;
+        await file.insertBlankPage(index);
+        if (this.file !== file) return;
+        const added = new Page(this.pagesEl, page.el.nextSibling);
+        this.pages.splice(index, 0, added);
+        this.infoEl.textContent = `${file.name} - ${this.pages.length} page(s)`;
+        await this.renderPage(file, added);
+      });
+    } catch (err) {
+      if (this.file === file) this.infoEl.textContent = `Failed to add page: ${err.message}`;
     }
   }
 

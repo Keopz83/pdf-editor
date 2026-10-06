@@ -10,13 +10,29 @@ export class Page {
     return pages.get(el?.closest(".page")) ?? null;
   }
 
-  constructor(container) {
+  constructor(container, before = null) {
     this.canvas = document.createElement("canvas");
     this.el = document.createElement("div");
     this.el.className = "page";
-    this.el.appendChild(this.canvas);
-    container.appendChild(this.el);
+    const actions = document.createElement("div");
+    actions.className = "page-actions";
+    actions.append(
+      Page.button("add-page btn-light", "Insert blank page after", "+"),
+      Page.button("remove-page btn-danger", "Remove page", "×"),
+    );
+    this.el.append(this.canvas, actions);
+    container.insertBefore(this.el, before);
     pages.set(this.el, this);
+  }
+
+  static button(className, label, text) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `btn btn-sm ${className}`;
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.textContent = text;
+    return button;
   }
 
   get width() {
