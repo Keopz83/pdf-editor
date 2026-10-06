@@ -22,15 +22,19 @@ export class Page {
     this.canvas = document.createElement("canvas");
     this.el = document.createElement("div");
     this.el.className = "page";
-    const actions = document.createElement("div");
-    actions.className = "page-actions";
-    actions.append(
-      Page.button("add-page", "Insert blank page after", PLUS),
-      Page.button("remove-page", "Remove page", MINUS),
-    );
-    this.el.append(this.canvas, actions);
+    this.el.append(this.canvas, Page.actions("top", "before"), Page.actions("bottom", "after"));
     container.insertBefore(this.el, before);
     pages.set(this.el, this);
+  }
+
+  static actions(position, where) {
+    const actions = document.createElement("div");
+    actions.className = `page-actions ${position}`;
+    actions.append(
+      Page.button(`add-page add-${where}`, `Insert blank page ${where}`, PLUS),
+      Page.button("remove-page", "Remove page", MINUS),
+    );
+    return actions;
   }
 
   static button(className, label, sign) {

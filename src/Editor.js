@@ -72,7 +72,7 @@ export class Editor {
       // The second click of a double-click would act again, possibly on a page moved into place.
       if (e.detail > 1) return;
       if (e.target.closest(".remove-page")) this.removePage(Page.of(e.target));
-      else if (e.target.closest(".add-page")) this.addPage(Page.of(e.target));
+      else if (e.target.closest(".add-page")) this.addPage(Page.of(e.target), !e.target.closest(".add-before"));
     });
     this.pagesEl.addEventListener("dblclick", (e) => {
       const box = Box.of(e.target);
@@ -224,16 +224,17 @@ export class Editor {
     }
   }
 
-  // Inserts a blank page of the same size after `page`.
-  async addPage(page) {
+  // Inserts a blank page of the same size after (or before) `page`.
+  async addPage(page, after = true) {
     const { file } = this;
     try {
       await this.queue(async () => {
-        const index = this.pages.indexOf(page) + 1;
-        if (this.file !== file || !index) return;
-        await file.insertBlankPage(index);
+        const at = this.pages.indexOf(page);
+        if (this.file !== file || at < 0) return;
+        const index = after ? at + 1 : at;
+        await file.insertBlankPage(index, at);
         if (this.file !== file) return;
-        const added = new Page(this.pagesEl, page.el.nextSibling);
+        const added = new Page(this.pagesEl, after ? page.el.nextSibling : page.el);
         this.pages.splice(index, 0, added);
         this.infoEl.textContent = `${file.name} - ${this.pages.length} page(s)`;
         await this.renderPage(file, added);

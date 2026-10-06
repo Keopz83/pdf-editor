@@ -19,7 +19,9 @@ footer { grid-column: 1 / -1; grid-row: -2; text-align: center; background: rgba
 #info { margin-left: auto; }
 #pages { overflow: auto; display: flex; flex-direction: column; align-items: center; gap: 1rem; padding: 1rem; background: #eee; }
 .page { position: relative; max-width: 100%; }
-.page-actions { position: absolute; top: 0.5rem; right: 0.5rem; z-index: 1; display: flex; gap: 0.25rem; opacity: 0; transition: opacity 0.15s; }
+.page-actions { position: absolute; right: 0.5rem; z-index: 1; display: flex; gap: 0.25rem; opacity: 0; transition: opacity 0.15s; }
+.page-actions.top { top: 0.5rem; }
+.page-actions.bottom { bottom: 0.5rem; }
 .page-actions button { display: flex; padding: 0; border: none; background: none; color: #333; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35)); }
 .page-actions .remove-page { color: #dc3545; }
 .page-actions button:hover { transform: scale(1.15); }

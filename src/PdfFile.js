@@ -106,10 +106,10 @@ export class PdfFile {
     this.revision++;
   }
 
-  // Sized like the page before it.
-  async insertBlankPage(index) {
+  // Sized like the page at `sizeOf`, before it is shifted by the insertion.
+  async insertBlankPage(index, sizeOf) {
     const doc = await PDFDocument.load(this.bytes);
-    const { width, height } = doc.getPage(index - 1).getCropBox();
+    const { width, height } = doc.getPage(sizeOf).getCropBox();
     doc.insertPage(index, [width, height]);
     this.bytes = await doc.save();
     this.revision++;

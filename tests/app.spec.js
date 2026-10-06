@@ -529,14 +529,15 @@ test("removes pages with their fields, except the last one, and keeps editing th
   await page.keyboard.press("Enter");
   await expect(page.locator(".text-box")).toHaveCount(1);
 
-  await pages.nth(1).locator(".remove-page").click();
+  await pages.nth(1).locator(".top .remove-page").click();
   await expect(pages).toHaveCount(2);
   await expect(page.locator(".text-box")).toHaveCount(0);
   await expect(page.locator("#info")).toHaveText("pages.pdf - 2 page(s)");
 
-  await pages.first().locator(".remove-page").click();
+  await pages.first().locator(".bottom .remove-page").click();
   await expect(pages).toHaveCount(1);
-  await expect(page.locator(".remove-page")).toBeHidden();
+  await expect(page.locator(".remove-page")).toHaveCount(2);
+  for (const button of await page.locator(".remove-page").all()) await expect(button).toBeHidden();
 
   // Removing pages is an unsaved change.
   await page.click("#close-btn");
@@ -560,7 +561,7 @@ test("inserts a blank page of the same size after a page", async ({ page }) => {
   await expect(page.locator("#info")).toHaveText("pages.pdf - 2 page(s)");
 
   const pages = page.locator(".page");
-  await pages.first().locator(".add-page").click();
+  await pages.first().locator(".add-after").click();
   await expect(pages).toHaveCount(3);
   await expect(page.locator("#info")).toHaveText("pages.pdf - 3 page(s)");
   const ratio = (el) => el.height / el.width;
@@ -579,6 +580,26 @@ test("inserts a blank page of the same size after a page", async ({ page }) => {
   await page.setInputFiles("#file", { name: "saved.pdf", mimeType: "application/pdf", buffer: saved });
   await expect(page.locator("#info")).toHaveText("saved.pdf - 3 page(s)");
   await expect(pages.nth(1).locator(".text-field")).toHaveValue("inserted");
+});
+
+test("the top + inserts a blank page before the page, the bottom + after it", async ({ page }) => {
+  const contents = ["One", "Two"].map((t) => `BT /F1 24 Tf 50 150 Td (${t}) Tj ET`);
+  await page.setInputFiles("#file", { name: "pages.pdf", mimeType: "application/pdf", buffer: makePdf(...contents) });
+  await expect(page.locator("#info")).toHaveText("pages.pdf - 2 page(s)");
+
+  const pages = page.locator(".page");
+  await expect(pages.first().locator(".top .add-before")).toHaveCount(1);
+  await expect(pages.first().locator(".bottom .add-after")).toHaveCount(1);
+  await pages.first().locator(".add-before").click();
+  await expect(pages).toHaveCount(3);
+  await pages.nth(2).locator(".add-after").click();
+  await expect(pages).toHaveCount(4);
+
+  const saved = await savePdf(page);
+  expect(await pdfTexts(saved, 1)).toEqual([]);
+  expect(await pdfTexts(saved, 2)).toEqual(["One"]);
+  expect(await pdfTexts(saved, 3)).toEqual(["Two"]);
+  expect(await pdfTexts(saved, 4)).toEqual([]);
 });
 
 test("toolbar page buttons act on the selected box's page, otherwise the visible one", async ({ page }) => {
