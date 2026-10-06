@@ -86,6 +86,8 @@ async function expectClosed(page) {
   await expect(page.locator("#save-btn")).toBeDisabled();
   await expect(page.locator("#save-as-btn")).toBeDisabled();
   await expect(page.locator("#close-btn")).toBeDisabled();
+  await expect(page.locator("#toolbar")).toBeHidden();
+  await expect(page.locator("#start")).toBeVisible();
 }
 
 test("Close without changes closes the document right away", async ({ page }) => {
@@ -93,9 +95,10 @@ test("Close without changes closes the document right away", async ({ page }) =>
   await expect(page.locator("#close-dialog")).toBeHidden();
   await expectClosed(page);
 
-  await page.setInputFiles("#file", { name: "test.pdf", mimeType: "application/pdf", buffer: makePdf() });
-  await expect(page.locator("#info")).toHaveText("test.pdf - 1 page(s)");
-  await expect(page.locator("#close-btn")).toBeEnabled();
+  await page.click("#start-new");
+  await expect(page.locator("#info")).toHaveText("Untitled.pdf - 1 page(s)");
+  await expect(page.locator("#start")).toBeHidden();
+  await expect(page.locator("#toolbar")).toBeVisible();
 });
 
 test("Close with unsaved changes asks to save; Cancel keeps and Don't Save discards", async ({ page }) => {

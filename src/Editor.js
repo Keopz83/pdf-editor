@@ -42,6 +42,8 @@ export class Editor {
 
     $("new-btn").addEventListener("click", () => this.newPdf());
     $("open-btn").addEventListener("click", () => this.openPicker());
+    $("start-new").addEventListener("click", () => this.newPdf());
+    $("start-open").addEventListener("click", () => this.openPicker());
     $("signature-btn").addEventListener("click", () => this.addSignature());
     this.fileInput.addEventListener("change", (e) => {
       const file = e.target.files[0];
@@ -70,6 +72,10 @@ export class Editor {
         this.editPageText(page, e);
       }
     });
+  }
+
+  setDocumentOpen(open) {
+    document.body.classList.toggle("no-document", !open);
   }
 
   get placing() {
@@ -226,6 +232,7 @@ export class Editor {
       // pdf.js detaches the buffer it receives, so keep the original for saving.
       const pdf = await pdfjsLib.getDocument({ data: file.bytes.slice(0) }).promise;
       this.file = file;
+      this.setDocumentOpen(true);
       this.infoEl.textContent = `${name} - ${pdf.numPages} page(s)`;
 
       for (let i = 1; i <= pdf.numPages; i++) {
@@ -251,6 +258,7 @@ export class Editor {
     this.select(null);
     this.setPlacing(false);
     this.file = null;
+    this.setDocumentOpen(false);
     this.saveBtn.disabled = true;
     this.saveAsBtn.disabled = true;
     this.closeBtn.disabled = true;
