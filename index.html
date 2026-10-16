@@ -15,12 +15,13 @@
   <aside id="toolbar" data-bs-theme="dark">
     <button id="new-btn" class="btn btn-sm btn-light" type="button">New</button>
     <button id="open-btn" class="btn btn-sm btn-light" type="button">Open</button>
-    <button id="save-btn" class="btn btn-sm btn-light" type="button" disabled>Save</button>
-    <button id="save-as-btn" class="btn btn-sm btn-light" type="button" disabled>Save as</button>
-    <button id="close-btn" class="btn btn-sm btn-light" type="button" disabled>Close</button>
+    <button id="save-btn" class="btn btn-sm btn-light" type="button" data-disabled-title="Open or create a document first" disabled>Save</button>
+    <button id="save-as-btn" class="btn btn-sm btn-light" type="button" data-disabled-title="Open or create a document first" disabled>Save as</button>
+    <button id="close-btn" class="btn btn-sm btn-light" type="button" data-disabled-title="No document is open" disabled>Close</button>
     <hr class="my-1" />
-    <button id="add-page-btn" class="btn btn-sm btn-outline-light" type="button" title="Insert a blank page after the current page" disabled>Add page</button>
-    <button id="remove-page-btn" class="btn btn-sm btn-outline-light" type="button" title="Remove the current page" disabled>Remove page</button>
+    <button id="add-page-btn" class="btn btn-sm btn-outline-light" type="button" title="Insert a blank page after the current page" data-disabled-title="Open or create a document first" disabled>Add page</button>
+    <button id="remove-page-btn" class="btn btn-sm btn-outline-light" type="button" title="Remove the current page" data-disabled-title="The only page of a document can't be removed" disabled>Remove page</button>
+    <button id="insert-pdf-btn" class="btn btn-sm btn-outline-light" type="button" title="Insert the pages of another PDF" data-disabled-title="Open or create a document first" disabled>Insert PDF</button>
     <hr class="my-1" />
     <button id="text-field-btn" class="btn btn-sm btn-outline-light" type="button">Add text</button>
     <button id="signature-btn" class="btn btn-sm btn-outline-light" type="button">Signature</button>
@@ -69,7 +70,7 @@
     <div class="dialog-buttons">
       <button id="signature-clear" class="btn btn-outline-secondary" type="button">Clear</button>
       <button id="signature-cancel" class="btn btn-secondary" type="button">Cancel</button>
-      <button id="signature-done" class="btn btn-primary" type="button" disabled>Done</button>
+      <button id="signature-done" class="btn btn-primary" type="button" data-disabled-title="Draw your signature first" disabled>Done</button>
     </div>
   </dialog>
 
@@ -81,6 +82,25 @@
         <button id="close-cancel" class="btn btn-secondary" value="cancel">Cancel</button>
         <button id="close-save-as" class="btn btn-outline-primary" value="save-as">Save as</button>
         <button id="close-save" class="btn btn-primary" value="save" autofocus>Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="insert-dialog">
+    <form method="dialog">
+      <p class="fw-semibold">Insert pages from a PDF</p>
+      <input type="file" id="insert-file" class="form-control form-control-sm" accept="application/pdf" />
+      <fieldset class="insert-positions">
+        <div class="form-check"><input type="radio" name="insert-at" id="insert-start" class="form-check-input" value="start" /><label class="form-check-label" for="insert-start">At the start</label></div>
+        <div class="form-check">
+          <input type="radio" name="insert-at" id="insert-after" class="form-check-input" value="after" checked /><label class="form-check-label" for="insert-after">After page</label>
+          <input type="number" id="insert-page" class="form-control form-control-sm" min="1" step="1" value="1" aria-label="Page number" />
+        </div>
+        <div class="form-check"><input type="radio" name="insert-at" id="insert-end" class="form-check-input" value="end" /><label class="form-check-label" for="insert-end">At the end</label></div>
+      </fieldset>
+      <div class="dialog-buttons">
+        <button id="insert-cancel" class="btn btn-secondary" type="button">Cancel</button>
+        <button id="insert-confirm" class="btn btn-primary" value="insert" data-disabled-title="Choose a PDF file first" formnovalidate disabled>Insert</button>
       </div>
     </form>
   </dialog>

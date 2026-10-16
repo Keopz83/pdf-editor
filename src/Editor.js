@@ -1,5 +1,6 @@
 import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs";
 import { Box } from "./Box.js";
+import { InsertPdfDialog } from "./InsertPdfDialog.js";
 import { OptionsPanel } from "./OptionsPanel.js";
 import { Page } from "./Page.js";
 import { PdfFile } from "./PdfFile.js";
@@ -37,6 +38,8 @@ export class Editor {
     this.deleteBtn = $("delete-btn");
     this.addPageBtn = $("add-page-btn");
     this.removePageBtn = $("remove-page-btn");
+    this.insertPdfBtn = $("insert-pdf-btn");
+    this.insertDialog = new InsertPdfDialog();
     this.pageNumberEl = $("page-number");
     this.closeDialog = $("close-dialog");
     this.options = new OptionsPanel();
@@ -61,6 +64,7 @@ export class Editor {
     this.deleteBtn.addEventListener("click", () => this.deleteSelected());
     this.addPageBtn.addEventListener("click", () => this.addPage(this.currentPage));
     this.removePageBtn.addEventListener("click", () => this.removePage(this.currentPage));
+    this.insertPdfBtn.addEventListener("click", () => this.insertPdfPicker());
 
     document.addEventListener("pointerdown", (e) => {
       if (!e.target.closest("#toolbar, dialog")) this.select(Box.of(e.target));
@@ -194,6 +198,7 @@ export class Editor {
   updatePageControls() {
     this.addPageBtn.disabled = !this.pages.length;
     this.removePageBtn.disabled = this.pages.length < 2;
+    this.insertPdfBtn.disabled = !this.pages.length;
     const current = this.pages.indexOf(this.currentPage) + 1;
     this.pageNumberEl.textContent = current ? `${current} / ${this.pages.length}` : "";
   }
@@ -243,6 +248,39 @@ export class Editor {
       });
     } catch (err) {
       if (this.file === file) this.infoEl.textContent = `Failed to add page: ${err.message}`;
+    }
+  }
+
+  async insertPdfPicker() {
+    this.setPlacing(false);
+    const current = this.pages.indexOf(this.currentPage) + 1;
+    const choice = await this.insertDialog.open(current || this.pages.length, this.pages.length);
+    if (choice) this.insertPdf(() => choice.file.arrayBuffer(), choice.where, this.pages[choice.pageNumber - 1]);
+  }
+
+  // Inserts the pages of another PDF at the start, at the end, or after `page`.
+  async insertPdf(readBytes, where, page = null) {
+    const { file } = this;
+    try {
+      await this.queue(async () => {
+        const index = where === "start" ? 0 : where === "end" ? this.pages.length : this.pages.indexOf(page) + 1;
+        if (this.file !== file || index < 0 || (where === "after" && index === 0)) return;
+        const fields = await file.insertPdf(index, await readBytes());
+        if (this.file !== file) return;
+        const before = this.pages[index]?.el ?? null;
+        const added = fields.map(() => new Page(this.pagesEl, before));
+        this.pages.splice(index, 0, ...added);
+        this.infoEl.textContent = `${file.name} - ${this.pages.length} page(s)`;
+        const pdf = await pdfjsLib.getDocument({ data: file.bytes.slice(0) }).promise;
+        try {
+          for (const [i, addedPage] of added.entries()) await addedPage.render(await pdf.getPage(index + i + 1), fields[i]);
+        } finally {
+          pdf.destroy();
+        }
+        this.updatePageControls();
+      });
+    } catch (err) {
+      if (this.file === file) this.infoEl.textContent = `Failed to insert PDF: ${err.message}`;
     }
   }
 

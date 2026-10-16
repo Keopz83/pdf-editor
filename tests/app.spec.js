@@ -627,12 +627,89 @@ test("toolbar page buttons act on the selected box's page, otherwise the visible
   await page.click("#remove-page-btn");
   await expect(pages).toHaveCount(1);
   await expect(page.locator("#remove-page-btn")).toBeDisabled();
+  await expect(page.locator("#remove-page-btn")).toHaveAttribute("title", "The only page of a document can't be removed");
   await expect(page.locator("#page-number")).toHaveText("1 / 1");
   expect(await pdfTexts(await savePdf(page))).toEqual([]);
 
+  await page.click("#add-page-btn");
+  await expect(page.locator("#remove-page-btn")).toBeEnabled();
+  await expect(page.locator("#remove-page-btn")).toHaveAttribute("title", "Remove the current page");
+
   await page.click("#close-btn");
+  await page.click("#close-discard");
   await expect(page.locator("#add-page-btn")).toBeDisabled();
+  await expect(page.locator("#add-page-btn")).toHaveAttribute("title", "Open or create a document first");
   await expect(page.locator("#page-number")).toBeHidden();
+});
+
+const textPages = (...texts) => makePdf(...texts.map((t) => `BT /F1 24 Tf 50 150 Td (${t}) Tj ET`));
+
+async function insertPdf(page, buffer, where, pageNumber) {
+  await page.click("#insert-pdf-btn");
+  await expect(page.locator("#insert-dialog")).toBeVisible();
+  await expect(page.locator("#insert-confirm")).toBeDisabled();
+  await page.setInputFiles("#insert-file", { name: "extra.pdf", mimeType: "application/pdf", buffer });
+  if (pageNumber) await page.fill("#insert-page", String(pageNumber));
+  await page.check(`#insert-${where}`);
+  await page.click("#insert-confirm");
+  await expect(page.locator("#insert-dialog")).toBeHidden();
+}
+
+test("inserts the pages of another PDF at the start, after a page, or at the end", async ({ page }) => {
+  await page.setInputFiles("#file", { name: "pages.pdf", mimeType: "application/pdf", buffer: textPages("One", "Two") });
+  await expect(page.locator("#info")).toHaveText("pages.pdf - 2 page(s)");
+  const pages = page.locator(".page");
+
+  // Cancel inserts nothing.
+  await page.click("#insert-pdf-btn");
+  await expect(page.locator("#insert-page")).toHaveValue("1");
+  await expect(page.locator("#insert-confirm")).toHaveAttribute("title", "Choose a PDF file first");
+  await page.setInputFiles("#insert-file", { name: "extra.pdf", mimeType: "application/pdf", buffer: textPages("X") });
+  await expect(page.locator("#insert-confirm")).toHaveAttribute("title", "");
+  await page.click("#insert-cancel");
+  await expect(page.locator("#insert-dialog")).toBeHidden();
+  await expect(pages).toHaveCount(2);
+
+  await insertPdf(page, textPages("A"), "start");
+  await expect(pages).toHaveCount(3);
+  await insertPdf(page, textPages("B1", "B2"), "after", 2);
+  await expect(pages).toHaveCount(5);
+  await insertPdf(page, textPages("C"), "end");
+  await expect(pages).toHaveCount(6);
+  await expect(page.locator("#info")).toHaveText("pages.pdf - 6 page(s)");
+
+  // Inserting pages is an unsaved change.
+  await page.click("#close-btn");
+  await expect(page.locator("#close-dialog")).toBeVisible();
+  await page.click("#close-cancel");
+
+  const saved = await savePdf(page);
+  const texts = [];
+  for (let i = 1; i <= 6; i++) texts.push(await pdfTexts(saved, i));
+  expect(texts).toEqual([["A"], ["One"], ["B1"], ["B2"], ["Two"], ["C"]]);
+});
+
+test("inserted pages keep the editable fields of a PDF saved by this app", async ({ page }) => {
+  await placeTextField(page, "field");
+  await page.keyboard.press("Enter");
+  const withField = await savePdf(page);
+
+  await page.setInputFiles("#file", { name: "pages.pdf", mimeType: "application/pdf", buffer: textPages("One", "Two") });
+  await expect(page.locator("#info")).toHaveText("pages.pdf - 2 page(s)");
+  await insertPdf(page, withField, "after", 1);
+
+  const pages = page.locator(".page");
+  await expect(pages).toHaveCount(3);
+  await expect(pages.nth(1).locator(".text-field")).toHaveValue("field");
+  await pages.nth(1).locator(".text-field").dblclick();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" edited");
+  await page.keyboard.press("Enter");
+
+  // The previously drawn text is replaced, not duplicated.
+  const saved = await savePdf(page);
+  expect(await pdfTexts(saved, 2)).toEqual(["Hello PDF", "field edited"]);
+  expect(await pdfTexts(saved, 3)).toEqual(["Two"]);
 });
 
 async function drawSignature(page) {

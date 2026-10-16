@@ -115,6 +115,18 @@ export class PdfFile {
     this.revision++;
   }
 
+  // Inserts all pages of another PDF at `index` and returns their editable fields, per page.
+  async insertPdf(index, bytes) {
+    const doc = await PDFDocument.load(this.bytes);
+    const extracted = await extractFields(bytes);
+    const source = await PDFDocument.load(extracted.bytes);
+    const copied = await doc.copyPages(source, source.getPageIndices());
+    copied.forEach((page, i) => doc.insertPage(index + i, page));
+    this.bytes = await doc.save();
+    this.revision++;
+    return copied.map((_, i) => extracted.fields[i] ?? []);
+  }
+
   // Draws the boxes of each Page into the PDF and stores them so they can be edited again.
   async build(pages) {
     const doc = await PDFDocument.load(this.bytes);
